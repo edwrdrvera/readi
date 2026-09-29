@@ -98,5 +98,5 @@ export function EpubReader({ detail }: { detail: BookDetail }) {
     };
   }, [detail, saver, notify]);
 
-  return <div ref={host} className="epub-host" />;
+  return <div ref={host} className="epub-host min-h-0 flex-1 bg-reader" />;
 }

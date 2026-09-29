@@ -7,6 +7,7 @@ import { useApp } from "./lib/store";
 import { EpubReader } from "./reader/EpubReader";
 import { PdfReader } from "./reader/PdfReader";
 import { activeReader } from "./reader/handle";
+import { Button } from "@/components/ui/button";
 
 export async function importPaths(paths: string[]) {
   const { notify, refreshBooks } = useApp.getState();
@@ -29,20 +30,20 @@ function Library() {
   const books = useApp((s) => s.books);
   const openBook = useApp((s) => s.openBook);
   return (
-    <main className="library">
-      <header>
-        <h1>Library</h1>
-        <button onClick={() => void pickAndImport()}>Import…</button>
+    <main className="mx-auto max-w-[900px] px-8 py-6">
+      <header className="flex items-center justify-between">
+        <h1 className="text-[22px] font-semibold">Library</h1>
+        <Button variant="outline" size="sm" onClick={() => void pickAndImport()}>Import…</Button>
       </header>
       {books.length === 0 ? (
-        <p className="empty">Drop EPUB or PDF files here, or press ⌘O to import.</p>
+        <p className="text-muted-foreground">Drop EPUB or PDF files here, or press ⌘O to import.</p>
       ) : (
-        <ul className="books">
+        <ul className="m-0 list-none p-0">
           {books.map((b) => (
             <li key={b.id}>
-              <button className="book" onClick={() => void openBook(b.id)}>
-                <span className="title">{b.title}</span>
-                <span className="meta">
+              <button className="flex w-full flex-col gap-0.5 border-b px-3 py-2.5 text-left hover:bg-muted focus-visible:outline-2" onClick={() => void openBook(b.id)}>
+                <span className="font-semibold">{b.title}</span>
+                <span className="text-xs text-muted-foreground">
                   {b.authors.join(", ") || "Unknown author"} · {b.format.toUpperCase()} · {b.reading_state}
                   {b.index_state !== "ready" && ` · index ${b.index_state.replace(/_/g, " ")}`}
                 </span>
@@ -66,12 +67,12 @@ function Reader() {
     closeBook();
   };
   return (
-    <main className="reader">
-      <header className="reader-chrome">
-        <button onClick={() => void back()} aria-label="Back to library">‹ Library</button>
-        <span className="reader-title">{detail.book.title}</span>
+    <main className="flex h-full flex-col">
+      <header className="flex items-center gap-3 border-b px-3 py-1.5 text-[13px]">
+        <Button variant="ghost" size="sm" onClick={() => void back()} aria-label="Back to library">‹ Library</Button>
+        <span className="truncate text-muted-foreground">{detail.book.title}</span>
         {saveStatus?.kind === "error" && (
-          <span className="save-error" role="alert">
+          <span className="ml-auto text-destructive" role="alert">
             Progress not saved. <button onClick={() => void activeReader()?.flush()}>Retry</button>
           </span>
         )}
@@ -119,9 +120,9 @@ export default function App() {
   return (
     <>
       {screen.name === "library" ? <Library /> : <Reader />}
-      <div className="notices" role="status">
+      <div className="fixed right-4 bottom-4 flex flex-col gap-2" role="status">
         {notices.map((n) => (
-          <div key={n} className="notice">{n}</div>
+          <div key={n} className="max-w-[360px] rounded-lg bg-foreground px-3 py-2 text-[13px] text-background">{n}</div>
         ))}
       </div>
     </>
