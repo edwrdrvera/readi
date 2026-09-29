@@ -1,5 +1,7 @@
 import { makeBook, type FoliateBook, type FoliateTocItem } from "foliate-js/view.js";
-import { bookUrl, type ExtractedMetadata, type TocItem } from "../lib/api";
+import { bookUrl, type ExtractedMetadata, type TextSegment, type TocItem } from "../lib/api";
+
+export const EPUB_EXTRACTOR_VERSION = 1;
 
 export async function loadEpub(id: number, signal?: AbortSignal): Promise<FoliateBook> {
   const res = await fetch(bookUrl(id), { signal });
@@ -57,4 +59,18 @@ export async function epubMetadata(book: FoliateBook): Promise<ExtractedMetadata
     language: metadataText(m.language),
     toc,
   };
+}
+
+const yieldToUi = () => new Promise((r) => setTimeout(r, 0));
+
+export async function epubText(book: FoliateBook, signal?: AbortSignal): Promise<TextSegment[]> {
+  const segments: TextSegment[] = [];
+  for (const [order, section] of book.sections.entries()) {
+    signal?.throwIfAborted();
+    const doc = await section.createDocument();
+    const text = doc.body?.textContent ?? "";
+    segments.push({ order, label: doc.title || null, text });
+    await yieldToUi();
+  }
+  return segments;
 }

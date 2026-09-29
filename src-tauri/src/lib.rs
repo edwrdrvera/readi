@@ -79,6 +79,11 @@ fn submit_metadata(lib: Lib, id: i64, metadata: ExtractedMetadata) -> Result<(),
 }
 
 #[tauri::command]
+fn submit_text(lib: Lib, id: i64, extractor_version: u32, segments: Vec<TextSegment>) -> Result<IndexState, String> {
+    db::replace_text(&lib.conn.lock().unwrap(), id, extractor_version, &segments)
+}
+
+#[tauri::command]
 fn fail_extraction(lib: Lib, id: i64, error: String) -> Result<(), String> {
     db::fail_job(&lib.conn.lock().unwrap(), id, &error)
 }
@@ -86,6 +91,11 @@ fn fail_extraction(lib: Lib, id: i64, error: String) -> Result<(), String> {
 #[tauri::command]
 fn transport_stats(stats: State<Arc<TransportStats>>, id: i64) -> protocol::Stats {
     stats.0.lock().unwrap().get(&id).copied().unwrap_or_default()
+}
+
+#[tauri::command]
+fn count_text_matches(lib: Lib, id: i64, word: String) -> Result<i64, String> {
+    db::search_count(&lib.conn.lock().unwrap(), id, &word)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -120,8 +130,10 @@ pub fn run() {
             save_progress,
             claim_extraction_job,
             submit_metadata,
+            submit_text,
             fail_extraction,
             transport_stats,
+            count_text_matches,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
