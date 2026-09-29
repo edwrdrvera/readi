@@ -163,12 +163,13 @@ export const commands: Command[] = [
   },
 ];
 
-/** Entry point for native menu events. */
+const execute = (command: Command, ctx: CommandContext) =>
+  void Promise.resolve(command.run(ctx)).catch((err) => useApp.getState().notify(`${command.label} failed: ${err}`));
+
 export function runCommand(id: string) {
   const ctx = commandContext();
   const command = commands.find((c) => c.id === id);
-  if (!command || !command.when(ctx)) return;
-  void Promise.resolve(command.run(ctx)).catch((err) => useApp.getState().notify(`${command.label} failed: ${err}`));
+  if (command?.when(ctx)) execute(command, ctx);
 }
 
 const EDITABLE = "input, textarea, select, [contenteditable]:not([contenteditable='false'])";
@@ -190,5 +191,5 @@ export function handleKeydown(e: KeyboardEvent) {
   if (!command) return;
   if (command.yieldsToControls && target?.closest?.(CONTROLS)) return;
   e.preventDefault();
-  void Promise.resolve(command.run(ctx)).catch((err) => useApp.getState().notify(`${command.label} failed: ${err}`));
+  execute(command, ctx);
 }

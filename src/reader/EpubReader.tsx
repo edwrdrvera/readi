@@ -79,8 +79,7 @@ export function EpubReader({ detail, prefs }: { detail: BookDetail; prefs: Prefs
   live.current = { prefs, theme };
   const control = useRef<{ view: View; relayout(): void } | null>(null);
 
-  // A layout effect, so its cleanup closes foliate before React detaches the
-  // host; a detached section document made foliate's ResizeObserver throw.
+  // A layout effect, so its cleanup closes foliate before React detaches the host.
   useLayoutEffect(() => {
     const abort = new AbortController();
     const view = document.createElement("foliate-view") as View;
