@@ -1,0 +1,13 @@
+diff --git a/paginator.js b/paginator.js
+index 95c4d0dae16bd96c3ace91bbd87fd1bea1c9f571..81840656a9437c35f50e8e6ed84ba6cb658a0a06 100644
+--- a/paginator.js
++++ b/paginator.js
+@@ -352,6 +352,8 @@ class View {
+         }
+     }
+     expand() {
++        // fonts.ready can settle after the iframe is removed on close
++        if (!this.document) return
+         const { documentElement } = this.document
+         if (this.#column) {
+             const side = this.#vertical ? 'height' : 'width'

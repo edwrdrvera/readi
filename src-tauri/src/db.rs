@@ -113,6 +113,8 @@ CREATE TABLE app_settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+"#, r#"
+ALTER TABLE book_preferences ADD COLUMN pdf_effect TEXT;
 "#];
 
 pub fn now() -> i64 {

@@ -9,6 +9,10 @@
       "bytes": 7472,
       "sha256": "2de950f409e50f2323a11b9d0ff639c0c49019291408361178b9980392ffb50e"
     },
+    "rtl.epub": {
+      "bytes": 82406,
+      "sha256": "25b80620809ca413ca4d49493fc4d61255380eb0b0e16820489fa5ffc3ca31dd"
+    },
     "text.pdf": {
       "bytes": 150281,
       "sha256": "240f09c51dcb1cece634bc58246a4e5aa7b06dc5fd95e567ce168708edfc537f"

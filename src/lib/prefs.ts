@@ -1,0 +1,59 @@
+/**
+ * Reading preferences. Settings holds a complete set of defaults; each book
+ * stores only the keys the user changed while reading it. Resetting a book
+ * deletes its overrides.
+ */
+
+export type ThemePref = "system" | "light" | "dark" | "sepia";
+export type Theme = Exclude<ThemePref, "system">;
+export type ReadingMode = "vertical" | "horizontal";
+/** EPUB: one or two columns. PDF: single page or two-page spread. */
+export type Spread = "single" | "double";
+export type FontFamily = "publisher" | "serif" | "sans";
+/** A number is a scale relative to the page's natural size (1 = 72 dpi). */
+export type PdfZoom = "fit-width" | "fit-page" | number;
+export type PdfEffect = "none" | "sepia" | "invert";
+
+export interface Prefs {
+  reading_mode: ReadingMode;
+  spread: Spread;
+  theme: ThemePref;
+  font_family: FontFamily;
+  /** CSS px. */
+  font_size: number;
+  line_height: number;
+  pdf_zoom: PdfZoom;
+  pdf_effect: PdfEffect;
+}
+
+export type PrefKey = keyof Prefs;
+export type Overrides = Partial<Prefs>;
+
+export const DEFAULT_PREFS: Prefs = {
+  reading_mode: "horizontal",
+  spread: "single",
+  theme: "system",
+  font_family: "publisher",
+  font_size: 18,
+  line_height: 1.5,
+  pdf_zoom: "fit-page",
+  pdf_effect: "none",
+};
+
+export const FONT_SIZE = { min: 12, max: 36, step: 2 } as const;
+export const LINE_HEIGHTS = [1.3, 1.5, 1.7, 1.9] as const;
+export const PDF_SCALE = { min: 0.25, max: 5, factor: 1.2 } as const;
+
+export const resolvePrefs = (defaults: Prefs, overrides: Overrides): Prefs => ({ ...defaults, ...overrides });
+
+export const resolveTheme = (pref: ThemePref, systemDark: boolean): Theme =>
+  pref === "system" ? (systemDark ? "dark" : "light") : pref;
+
+export const THEME_COLORS: Record<Theme, { bg: string; fg: string; link: string }> = {
+  light: { bg: "#ffffff", fg: "#1d1d1f", link: "#0a60c9" },
+  dark: { bg: "#1c1c1e", fg: "#e5e5ea", link: "#64a8ff" },
+  sepia: { bg: "#f4ecd8", fg: "#5b4636", link: "#8a4b12" },
+};
+
+export const stepFontSize = (size: number, dir: 1 | -1) =>
+  Math.min(FONT_SIZE.max, Math.max(FONT_SIZE.min, size + dir * FONT_SIZE.step));

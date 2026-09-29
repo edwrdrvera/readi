@@ -1,6 +1,7 @@
 mod db;
 mod library;
 mod model;
+mod prefs;
 mod protocol;
 
 use library::Library;
@@ -9,7 +10,8 @@ use protocol::TransportStats;
 use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tauri::{Manager, State};
+use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::{AppHandle, Emitter, Manager, State, Wry};
 
 type Lib<'a> = State<'a, Arc<Library>>;
 
@@ -98,6 +100,33 @@ fn count_text_matches(lib: Lib, id: i64, word: String) -> Result<i64, String> {
     db::search_count(&lib.conn.lock().unwrap(), id, &word)
 }
 
+#[tauri::command]
+fn get_prefs(lib: Lib, book_id: Option<i64>) -> Result<prefs::PrefsState, String> {
+    let conn = lib.conn.lock().unwrap();
+    Ok(prefs::PrefsState {
+        defaults: prefs::get_defaults(&conn)?,
+        overrides: match book_id {
+            Some(id) => prefs::get_overrides(&conn, id)?,
+            None => prefs::Overrides::default(),
+        },
+    })
+}
+
+#[tauri::command]
+fn set_default_prefs(lib: Lib, prefs: prefs::Prefs) -> Result<(), String> {
+    prefs::set_defaults(&lib.conn.lock().unwrap(), &prefs)
+}
+
+#[tauri::command]
+fn set_book_pref(lib: Lib, book_id: i64, key: prefs::PrefKey, value: serde_json::Value) -> Result<(), String> {
+    prefs::set_book_pref(&lib.conn.lock().unwrap(), book_id, key, value)
+}
+
+#[tauri::command]
+fn reset_book_prefs(lib: Lib, book_id: i64) -> Result<(), String> {
+    prefs::reset_book_prefs(&lib.conn.lock().unwrap(), book_id)
+}
+
 /// Packaged-app self test, enabled only when READI_SELFTEST names a report path.
 #[derive(Serialize)]
 struct SelfTestConfig {
@@ -139,6 +168,81 @@ fn selftest_report(report: serde_json::Value) -> Result<(), String> {
     std::fs::rename(tmp, path).map_err(|e| e.to_string())
 }
 
+/// (command id, label, accelerator). The id is the frontend registry id; the
+/// frontend owns `when` and `run`, so a menu click only carries the id.
+type Item = (&'static str, &'static str, Option<&'static str>);
+
+const FILE: &[Item] = &[("library.import", "Import\u{2026}", Some("CmdOrCtrl+O"))];
+const VIEW: &[Item] = &[
+    ("sidebar.toggle", "Toggle Contents", Some("CmdOrCtrl+\\")),
+    ("mode.toggle", "Toggle Vertical/Horizontal", Some("CmdOrCtrl+Shift+V")),
+    ("theme.light", "Light", Some("CmdOrCtrl+1")),
+    ("theme.dark", "Dark", Some("CmdOrCtrl+2")),
+    ("theme.sepia", "Sepia", Some("CmdOrCtrl+3")),
+    ("text.bigger", "Larger", Some("CmdOrCtrl+=")),
+    ("text.smaller", "Smaller", Some("CmdOrCtrl+-")),
+];
+const GO: &[Item] = &[("nav.back", "Back", Some("CmdOrCtrl+[")), ("library.return", "Return to Library", None)];
+
+fn custom_items(app: &AppHandle, items: &[Item]) -> tauri::Result<Vec<MenuItem<Wry>>> {
+    items.iter().map(|(id, label, accel)| MenuItem::with_id(app, *id, *label, true, *accel)).collect()
+}
+
+fn submenu(app: &AppHandle, title: &str, items: &[Item]) -> tauri::Result<Submenu<Wry>> {
+    let items = custom_items(app, items)?;
+    let refs: Vec<&dyn tauri::menu::IsMenuItem<Wry>> = items.iter().map(|i| i as _).collect();
+    Submenu::with_items(app, title, true, &refs)
+}
+
+fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
+    let name = app.package_info().name.clone();
+    let app_menu = Submenu::with_items(
+        app,
+        &name,
+        true,
+        &[
+            &PredefinedMenuItem::about(app, None, Some(AboutMetadata::default()))?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::services(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::hide(app, None)?,
+            &PredefinedMenuItem::hide_others(app, None)?,
+            &PredefinedMenuItem::show_all(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::quit(app, None)?,
+        ],
+    )?;
+    let edit = Submenu::with_items(
+        app,
+        "Edit",
+        true,
+        &[
+            &PredefinedMenuItem::undo(app, None)?,
+            &PredefinedMenuItem::redo(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::cut(app, None)?,
+            &PredefinedMenuItem::copy(app, None)?,
+            &PredefinedMenuItem::paste(app, None)?,
+            &PredefinedMenuItem::select_all(app, None)?,
+        ],
+    )?;
+    let window = Submenu::with_items(
+        app,
+        "Window",
+        true,
+        &[
+            &PredefinedMenuItem::minimize(app, None)?,
+            &PredefinedMenuItem::maximize(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::close_window(app, None)?,
+        ],
+    )?;
+    Menu::with_items(
+        app,
+        &[&app_menu, &submenu(app, "File", FILE)?, &edit, &submenu(app, "View", VIEW)?, &submenu(app, "Go", GO)?, &window],
+    )
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let stats = Arc::new(TransportStats::default());
@@ -146,6 +250,13 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .menu(|app| build_menu(app))
+        .on_menu_event(|app, event| {
+            let id = event.id().as_ref();
+            if [FILE, VIEW, GO].iter().any(|g| g.iter().any(|(i, ..)| *i == id)) {
+                let _ = app.emit("menu-command", id);
+            }
+        })
         .setup(move |app| {
             let data_dir = match std::env::var("READI_DATA_DIR") {
                 Ok(d) => PathBuf::from(d),
@@ -175,6 +286,10 @@ pub fn run() {
             fail_extraction,
             transport_stats,
             count_text_matches,
+            get_prefs,
+            set_default_prefs,
+            set_book_pref,
+            reset_book_prefs,
             selftest_config,
             selftest_report,
             selftest_log,

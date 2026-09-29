@@ -1,7 +1,7 @@
 // Generates every test fixture from code, so all fixtures are MIT-licensed
 // project output. Usage: node scripts/make-fixtures.mjs [--large]
 import { createHash } from 'node:crypto'
-import { mkdirSync, writeFileSync, openSync, writeSync, closeSync, readFileSync, statSync } from 'node:fs'
+import { mkdirSync, writeFileSync, openSync, writeSync, closeSync, readFileSync, statSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 const out = join(import.meta.dirname, '..', 'fixtures')
@@ -58,21 +58,23 @@ const paragraph = () => Array.from({ length: 5 }, sentence).join(' ')
 
 const container = `<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>`
 
-function epub({ title, author, chapters, extraManifest = '', extraFiles = [] }) {
+function epub({ title, author, chapters, extraManifest = '', extraFiles = [], lang = 'en', dir = null }) {
   const manifest = chapters.map((_, i) => `<item id="c${i}" href="c${i}.xhtml" media-type="application/xhtml+xml"/>`).join('')
   const spine = chapters.map((_, i) => `<itemref idref="c${i}"/>`).join('')
+  const ppd = dir ? ` page-progression-direction="${dir}"` : ''
+  const htmlAttrs = dir ? `xml:lang="${lang}" lang="${lang}" dir="${dir}"` : ''
   const opf = `<?xml version="1.0" encoding="UTF-8"?>
-<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id" xml:lang="en">
-<metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">urn:readi:${title}</dc:identifier><dc:title>${title}</dc:title><dc:creator>${author}</dc:creator><dc:language>en</dc:language><meta property="dcterms:modified">2026-09-28T00:00:00Z</meta></metadata>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id" xml:lang="${lang}">
+<metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">urn:readi:${title}</dc:identifier><dc:title>${title}</dc:title><dc:creator>${author}</dc:creator><dc:language>${lang}</dc:language><meta property="dcterms:modified">2026-09-28T00:00:00Z</meta></metadata>
 <manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>${manifest}${extraManifest}</manifest>
-<spine>${spine}</spine></package>`
-  const nav = `<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Contents</title></head><body><nav epub:type="toc"><ol>${chapters.map((c, i) => `<li><a href="c${i}.xhtml">${c.title}</a></li>`).join('')}</ol></nav></body></html>`
+<spine${ppd}>${spine}</spine></package>`
+  const nav = `<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"${htmlAttrs && ' ' + htmlAttrs}><head><title>Contents</title></head><body><nav epub:type="toc"><ol>${chapters.map((c, i) => `<li><a href="c${i}.xhtml">${c.title}</a></li>`).join('')}</ol></nav></body></html>`
   const files = [
     ['mimetype', 'application/epub+zip'],
     ['META-INF/container.xml', container],
     ['OEBPS/content.opf', opf],
     ['OEBPS/nav.xhtml', nav],
-    ...chapters.map((c, i) => [`OEBPS/c${i}.xhtml`, `<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>${c.title}</title>${c.head ?? ''}</head><body><h1>${c.title}</h1>${c.body}</body></html>`]),
+    ...chapters.map((c, i) => [`OEBPS/c${i}.xhtml`, `<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"${htmlAttrs && ' ' + htmlAttrs}><head><title>${c.title}</title>${c.head ?? ''}</head><body><h1>${c.title}</h1>${c.body}</body></html>`]),
     ...extraFiles,
   ]
   return zip(files)
@@ -163,8 +165,19 @@ if (process.argv.includes('--large')) {
   writePdf(join(out, 'large.pdf'), { pages, imageBytesPerPage: 440_000, title: 'Readi Large Fixture' })
 }
 
+// Its own seed, so adding this fixture leaves the others byte-identical.
+seed = 7
+const hebrew = 'הנהר פנס שקט נמל בוקר כסף מפה נייר ספינה רוח ארכיון מלח זכוכית פרדס מכתב גשר צפון ערב אבן שומר אי אות'.split(' ')
+const hebrewSentence = () => Array.from({ length: 8 + Math.floor(rand() * 10) }, () => hebrew[Math.floor(rand() * hebrew.length)]).join(' ') + '.'
+const rtlChapters = Array.from({ length: 6 }, (_, i) => ({
+  title: `פרק ${i + 1}`,
+  body: Array.from({ length: 25 }, () => `<p>${Array.from({ length: 5 }, hebrewSentence).join(' ')}</p>`).join(''),
+}))
+writeFileSync(join(out, 'rtl.epub'), epub({ title: 'ספר המפות', author: 'Readi Project', chapters: rtlChapters, lang: 'he', dir: 'rtl' }))
+
 const manifest = {}
-for (const f of ['typical.epub', 'hostile.epub', 'text.pdf', ...(process.argv.includes('--large') ? ['large.pdf'] : [])]) {
+// large.pdf is listed whenever it exists, so a run without --large keeps its entry.
+for (const f of ['typical.epub', 'hostile.epub', 'rtl.epub', 'text.pdf', 'large.pdf'].filter(f => existsSync(join(out, f)))) {
   const p = join(out, f)
   manifest[f] = { bytes: statSync(p).size, sha256: createHash('sha256').update(readFileSync(p)).digest('hex') }
 }
