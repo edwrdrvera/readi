@@ -4,6 +4,7 @@ mod library;
 mod model;
 mod prefs;
 mod protocol;
+mod search;
 mod watch;
 
 use jobs::{Jobs, LibraryEvent};
@@ -177,6 +178,16 @@ fn reindex_book(app: AppHandle, lib: Lib, id: i64) -> Result<(), String> {
     db::reindex_book(&lib.conn.lock().unwrap(), id)?;
     let _ = app.emit("library-changed", ());
     Ok(())
+}
+
+#[tauri::command]
+fn search_book(lib: Lib, id: i64, query: String) -> Result<BookSearch, String> {
+    search::search_book(&lib.conn.lock().unwrap(), id, &query)
+}
+
+#[tauri::command]
+fn search_library(lib: Lib, query: String) -> Result<LibrarySearch, String> {
+    search::search_library(&lib.conn.lock().unwrap(), &query)
 }
 
 #[tauri::command]
@@ -414,6 +425,8 @@ pub fn run() {
             fail_extraction,
             retry_extraction,
             reindex_book,
+            search_book,
+            search_library,
             transport_stats,
             count_text_matches,
             get_prefs,
