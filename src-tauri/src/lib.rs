@@ -55,6 +55,12 @@ pub fn run() {
             app.manage(Arc::new(lib));
             Ok(())
         })
+        .register_asynchronous_uri_scheme_protocol("book", move |ctx, request, responder| {
+            let lib = ctx.app_handle().state::<Arc<Library>>().inner().clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                responder.respond(protocol::handle(&lib, &request));
+            });
+        })
         .invoke_handler(tauri::generate_handler![
             list_books,
             import_books,

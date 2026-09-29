@@ -21,6 +21,8 @@ export type ImportOutcome =
   | { status: "imported"; path: string; result: { book: BookSummary; already_in_library: boolean } }
   | { status: "failed"; path: string; reason: string };
 
+export const bookUrl = (id: number) => `book://localhost/${id}`;
+
 export const api = {
   listBooks: () => invoke<BookSummary[]>("list_books"),
   importBooks: (paths: string[]) => invoke<ImportOutcome[]>("import_books", { paths }),

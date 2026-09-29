@@ -230,6 +230,21 @@ pub fn insert_managed_book(
     Ok(id)
 }
 
+/// Returns (kind, path) for the first available location.
+pub fn book_location(conn: &Connection, id: i64) -> Result<Option<(String, String, Format)>, String> {
+    conn.query_row(
+        "SELECT l.kind, l.path, b.format FROM book_locations l JOIN books b ON b.id = l.book_id
+         WHERE l.book_id = ?1 AND l.availability = 'available' ORDER BY l.id LIMIT 1",
+        [id],
+        |r| {
+            let f: String = r.get(2)?;
+            Ok((r.get(0)?, r.get(1)?, Format::parse(&f).unwrap_or(Format::Epub)))
+        },
+    )
+    .optional()
+    .map_err(|e| e.to_string())
+}
+
 pub fn managed_paths(conn: &Connection) -> Result<Vec<String>, String> {
     let mut stmt = conn
         .prepare("SELECT path FROM book_locations WHERE kind = 'managed'")
