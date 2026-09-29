@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  foliate-js@1.0.1: 3dd14e5095c0e7808af2f74e65ab47dfbc71d2e52292cc7ad807f4b85a600baa
+
 importers:
 
   .:
@@ -25,7 +28,7 @@ importers:
         version: 2.1.1
       foliate-js:
         specifier: 1.0.1
-        version: 1.0.1
+        version: 1.0.1(patch_hash=3dd14e5095c0e7808af2f74e65ab47dfbc71d2e52292cc7ad807f4b85a600baa)
       lucide-react:
         specifier: ^1.48.0
         version: 1.48.0(react@19.3.0)
@@ -2768,7 +2771,7 @@ snapshots:
     optionalDependencies:
       picomatch: 4.0.7
 
-  foliate-js@1.0.1:
+  foliate-js@1.0.1(patch_hash=3dd14e5095c0e7808af2f74e65ab47dfbc71d2e52292cc7ad807f4b85a600baa):
     dependencies:
       construct-style-sheets-polyfill: 3.1.0
 
