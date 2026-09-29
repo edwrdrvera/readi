@@ -7,6 +7,7 @@ import { createServer } from 'node:http'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { runM3 } from './packaged-check-m3.mjs'
+import { runM4 } from './packaged-check-m4.mjs'
 import { join, resolve } from 'node:path'
 
 const root = resolve(import.meta.dirname, '..')
@@ -112,8 +113,9 @@ const notVerified = (name, detail) => checks.push({ name, ok: true, notVerified:
 const measured = {}
 
 try {
- // READI_ONLY_M3=1 skips the M2 phases while iterating on M3.
- if (!process.env.READI_ONLY_M3) {
+ // READI_ONLY_M3=1 skips the M2 phases; READI_ONLY_M4=1 runs only the M4 phases.
+ const only = process.env.READI_ONLY_M4 ? 'm4' : process.env.READI_ONLY_M3 ? 'm3' : null
+ if (!only) {
   const first = await runPhase('first', { sampleMemory: true })
   const restore = await runPhase('restore')
   console.log(JSON.stringify({ first, restore, canaryHits }, null, 2))
@@ -199,7 +201,8 @@ try {
     check('warm open text.pdf x20: p95 < 1000 ms', wo.pdf.p95 < 1000, wo.pdf)
   }
  }
-  await runM3({ root, app, runPhase, check, notVerified, measured, fixtures })
+  if (only !== 'm4') await runM3({ root, app, runPhase, check, notVerified, measured, fixtures })
+  if (only !== 'm3') await runM4({ root, runPhase, check, notVerified, measured })
 } finally {
   canary.close()
   rmSync(dataDir, { recursive: true, force: true })

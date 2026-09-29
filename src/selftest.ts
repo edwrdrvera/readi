@@ -8,6 +8,7 @@ import { THEME_COLORS, type PrefKey, type Prefs } from "./lib/prefs";
 import type { Locator } from "./lib/api";
 import { openAndWait, sleep, until } from "./selftestKit";
 import { runM3Phase } from "./selftestM3";
+import { runM4Phase } from "./selftestM4";
 
 // Drives the packaged app when READI_SELFTEST is set. scripts/packaged-check.mjs
 // runs the "first" phase, force-kills the app, then runs "restore".
@@ -414,7 +415,9 @@ export async function runSelfTestIfEnabled() {
   try {
     const report = config.phase.startsWith("m3-")
       ? await runM3Phase(config.phase, config.m3)
-      : config.phase === "restore"
+      : config.phase.startsWith("m4-")
+        ? await runM4Phase(config.phase, config.m3, sha)
+        : config.phase === "restore"
         ? await restore(sha)
         : await first(fixtures, sha);
     await api.selftestReport(report);
