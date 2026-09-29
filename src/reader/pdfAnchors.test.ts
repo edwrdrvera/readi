@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pageSegment, pointInQuad, quadPolygon, rectToQuad, segmentOffset, sortKey, unitPointAt } from "./pdfAnchors";
+import { pageSegment, pointInQuad, quadPolygon, rectToQuad, segmentOffset, sortKey } from "./pdfAnchors";
 
 describe("pdf text units", () => {
   const items = [
@@ -22,13 +22,11 @@ describe("pdf text units", () => {
     ]);
   });
 
-  it("resolves unit points to segment offsets and back", () => {
+  it("resolves unit points to segment offsets", () => {
     const { text, mapping } = pageSegment(items);
     const start = segmentOffset(mapping, [1, 0])!;
     const end = segmentOffset(mapping, [3, 4])!;
     expect(text.slice(start, end)).toBe("world.\nNext");
-    expect(unitPointAt(mapping, start)).toEqual([1, 0]);
-    expect(unitPointAt(mapping, end)).toEqual([3, 4]);
   });
 
   it("rejects points on empty or unknown items and offsets past a unit's end", () => {

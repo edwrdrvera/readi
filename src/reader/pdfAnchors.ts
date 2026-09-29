@@ -30,12 +30,6 @@ export function segmentOffset(mapping: TextMapping, [unit, offset]: UnitPoint): 
   return entry[0] + offset;
 }
 
-/** Unit point for a segment offset, the inverse of segmentOffset. */
-export function unitPointAt(mapping: TextMapping, offset: number): UnitPoint | null {
-  for (const [start, unit, len] of mapping.units) if (offset >= start && offset <= start + len) return [unit, offset - start];
-  return null;
-}
-
 export const sameText = (a: string, b: string) => normalizeUnit(a).toLowerCase() === normalizeUnit(b).toLowerCase();
 
 export const collapse = (s: string) => s.replace(/\s+/g, " ").trim();
