@@ -4,6 +4,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { api } from "./lib/api";
 import { useApp } from "./lib/store";
 import { EpubReader } from "./reader/EpubReader";
+import { PdfReader } from "./reader/PdfReader";
 import { activeReader } from "./reader/handle";
 
 export async function importPaths(paths: string[]) {
@@ -73,7 +74,7 @@ function Reader() {
           </span>
         )}
       </header>
-      <EpubReader key={detail.book.id} detail={detail} />
+      {detail.book.format === "epub" ? <EpubReader key={detail.book.id} detail={detail} /> : <PdfReader key={detail.book.id} detail={detail} />}
     </main>
   );
 }
