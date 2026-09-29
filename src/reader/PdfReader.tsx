@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { BookDetail, Locator } from "../lib/api";
 import { loadPdf, type PdfDoc, type PdfPage } from "../adapters/pdf";
 import { backHistory } from "../lib/history";
-import { DEFAULT_PREFS, type Prefs } from "../lib/prefs";
+import type { Prefs } from "../lib/prefs";
 import { useApp } from "../lib/store";
 import { setActiveReader, type RestoreQuality } from "./handle";
 import { fitScale, pageAt, pageLabel, pageSize, spreadOf, stack, stepSpread, toPdf, toViewport, type PageGeom } from "./pdfLayout";
@@ -134,6 +134,9 @@ class PdfView {
     }
     this.content.style.width = `${contentW}px`;
     this.content.style.height = `${contentH}px`;
+    const scale = this.boxes.get(this.current)?.scale;
+    // Cmd+Plus/Minus steps from the effective scale when zoom is a fit mode.
+    if (scale) this.scroller.closest<HTMLElement>(".pdf-host")?.setAttribute("data-scale", String(Math.round(scale * 1000) / 1000));
   }
 
   private place() {
@@ -371,7 +374,7 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-export function PdfReader({ detail, prefs = DEFAULT_PREFS }: { detail: BookDetail; prefs?: Prefs }) {
+export function PdfReader({ detail, prefs }: { detail: BookDetail; prefs: Prefs }) {
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const viewRef = useRef<PdfView | null>(null);
