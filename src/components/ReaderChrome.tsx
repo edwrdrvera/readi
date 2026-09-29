@@ -29,7 +29,8 @@ export function ReaderChrome({ detail, prefs }: { detail: BookDetail; prefs: Pre
   const resetOverrides = useApp((s) => s.resetOverrides);
   const bookId = detail.book.id;
   const backSize = useSyncExternalStore(backHistory.subscribe, () => backHistory.size(bookId));
-  const held = aaOpen || settingsOpen;
+  const alwaysShow = useApp((s) => s.uiSettings.always_show_controls);
+  const held = aaOpen || settingsOpen || alwaysShow;
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;

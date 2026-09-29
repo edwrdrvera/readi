@@ -120,10 +120,6 @@ export interface BookDetail {
   locations: Location[];
 }
 
-export type ImportOutcome =
-  | { status: "imported"; path: string; result: { book: BookSummary; already_in_library: boolean } }
-  | { status: "failed"; path: string; reason: string };
-
 export interface ExtractedMetadata {
   title: string | null;
   authors: string[];
@@ -142,8 +138,8 @@ export const coverUrl = (id: number) => `book://localhost/${id}/cover`;
 
 export const api = {
   listBooks: () => invoke<BookSummary[]>("list_books"),
-  /** M2 shape. Workers A and C switch it to return ImportJob[] at once, with progress as EVENTS.importJob. */
-  importBooks: (paths: string[]) => invoke<ImportOutcome[]>("import_books", { paths }),
+  /** Returns the queued jobs at once; progress arrives as EVENTS.importJob. */
+  importBooks: (paths: string[]) => invoke<ImportJob[]>("import_books", { paths }),
   listImportJobs: () => invoke<ImportJob[]>("list_import_jobs"),
   cancelImport: (jobId: number) => invoke<void>("cancel_import", { jobId }),
   getLocations: (id: number) => invoke<Location[]>("get_locations", { id }),
@@ -170,7 +166,7 @@ export const api = {
   getUiSettings: () => invoke<UiSettings>("get_ui_settings"),
   setUiSettings: (settings: UiSettings) => invoke<void>("set_ui_settings", { settings }),
   claimCoverJob: () => invoke<BookSummary | null>("claim_cover_job"),
-  /** PNG or JPEG bytes, at most 2 MiB; null records that the book has no cover. */
+  /** PNG or JPEG bytes, at most 1 MiB; null records that the book has no cover. */
   submitCover: (id: number, bytes: number[] | null) => invoke<void>("submit_cover", { id, bytes }),
   openBook: (id: number) => invoke<BookDetail>("open_book", { id }),
   saveProgress: (id: number, locator: Locator, percent: number) =>

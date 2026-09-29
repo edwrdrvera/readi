@@ -1,7 +1,7 @@
 import type { Format } from "./api";
 import { backHistory } from "./history";
 import { pickAndImport } from "./importing";
-import { PDF_SCALE, resolvePrefs, stepFontSize, type PrefKey, type Prefs, type Theme } from "./prefs";
+import { PDF_SCALE, resolvePrefs, stepFontSize, type PrefKey, type Prefs, type ThemePref } from "./prefs";
 import { useApp } from "./store";
 import { activeReader, type ReaderHandle } from "../reader/handle";
 
@@ -33,6 +33,8 @@ export interface Command {
   shortcuts: Shortcut[];
   /** Plain navigation keys that a focused control (button, radio group) may own. */
   yieldsToControls?: boolean;
+  /** False keeps a command out of the palette. */
+  palette?: boolean;
   when(ctx: CommandContext): boolean;
   run(ctx: CommandContext): void | Promise<void>;
 }
@@ -92,15 +94,37 @@ export function closeSidebar() {
   requestAnimationFrame(() => target?.focus());
 }
 
-const themeCommand = (theme: Theme, n: number): Command => ({
+const themeCommand = (theme: ThemePref, n: number | null): Command => ({
   id: `theme.${theme}`,
-  label: `${theme[0].toUpperCase()}${theme.slice(1)} theme`,
-  shortcuts: [{ key: String(n), meta: true, viaMenu: true }],
+  label: theme === "system" ? "Follow System theme" : `${theme[0].toUpperCase()}${theme.slice(1)} theme`,
+  shortcuts: n === null ? [] : [{ key: String(n), meta: true, viaMenu: true }],
   when: () => true,
   run: (ctx) => setPref(ctx, "theme", theme),
 });
 
+let paletteOpener: HTMLElement | null = null;
+
+export function openPalette(opener: Element | null = document.activeElement) {
+  paletteOpener = opener instanceof HTMLElement ? opener : null;
+  useApp.getState().setPaletteOpen(true);
+}
+
+/** Focus target when the palette closes. */
+export function takePaletteOpener(): HTMLElement | null {
+  const target = paletteOpener?.isConnected ? paletteOpener : readingRegion();
+  paletteOpener = null;
+  return target;
+}
+
 export const commands: Command[] = [
+  {
+    id: "palette.open",
+    label: "Command Palette",
+    shortcuts: [{ key: "k", meta: true }],
+    palette: false,
+    when: () => true,
+    run: () => openPalette(),
+  },
   { id: "library.import", label: "Import…", shortcuts: [{ key: "o", meta: true, viaMenu: true }], when: () => true, run: () => pickAndImport() },
   {
     id: "library.return",
@@ -116,12 +140,12 @@ export const commands: Command[] = [
     when: (ctx) => ctx.screen === "reader",
     run: () => (useApp.getState().sidebar.open ? closeSidebar() : openSidebar()),
   },
-  { id: "nav.left", label: "Page left", shortcuts: [{ key: "ArrowLeft" }], yieldsToControls: true, when: inReader, run: (c) => c.reader!.goLeft() },
-  { id: "nav.right", label: "Page right", shortcuts: [{ key: "ArrowRight" }], yieldsToControls: true, when: inReader, run: (c) => c.reader!.goRight() },
-  { id: "nav.up", label: "Scroll up", shortcuts: [{ key: "ArrowUp" }], yieldsToControls: true, when: inReader, run: (c) => c.reader!.scrollBy(-1) },
-  { id: "nav.down", label: "Scroll down", shortcuts: [{ key: "ArrowDown" }], yieldsToControls: true, when: inReader, run: (c) => c.reader!.scrollBy(1) },
-  { id: "nav.next", label: "Next page", shortcuts: [{ key: " " }], yieldsToControls: true, when: inReader, run: (c) => c.reader!.next() },
-  { id: "nav.prev", label: "Previous page", shortcuts: [{ key: " ", shift: true }], yieldsToControls: true, when: inReader, run: (c) => c.reader!.prev() },
+  { id: "nav.left", palette: false, label: "Page left", shortcuts: [{ key: "ArrowLeft" }], yieldsToControls: true, when: inReader, run: (c) => c.reader!.goLeft() },
+  { id: "nav.right", palette: false, label: "Page right", shortcuts: [{ key: "ArrowRight" }], yieldsToControls: true, when: inReader, run: (c) => c.reader!.goRight() },
+  { id: "nav.up", palette: false, label: "Scroll up", shortcuts: [{ key: "ArrowUp" }], yieldsToControls: true, when: inReader, run: (c) => c.reader!.scrollBy(-1) },
+  { id: "nav.down", palette: false, label: "Scroll down", shortcuts: [{ key: "ArrowDown" }], yieldsToControls: true, when: inReader, run: (c) => c.reader!.scrollBy(1) },
+  { id: "nav.next", palette: false, label: "Next page", shortcuts: [{ key: " " }], yieldsToControls: true, when: inReader, run: (c) => c.reader!.next() },
+  { id: "nav.prev", palette: false, label: "Previous page", shortcuts: [{ key: " ", shift: true }], yieldsToControls: true, when: inReader, run: (c) => c.reader!.prev() },
   {
     id: "nav.back",
     label: "Back",
@@ -139,6 +163,7 @@ export const commands: Command[] = [
   themeCommand("light", 1),
   themeCommand("dark", 2),
   themeCommand("sepia", 3),
+  themeCommand("system", null),
   {
     id: "text.bigger",
     label: "Larger text or zoom in",
@@ -156,6 +181,7 @@ export const commands: Command[] = [
   {
     id: "ui.dismiss",
     label: "Dismiss",
+    palette: false,
     shortcuts: [{ key: "Escape" }],
     // Popovers and sheets dismiss themselves and mark the event handled.
     when: (ctx) => ctx.screen === "reader" && useApp.getState().sidebar.open && !useApp.getState().sidebar.pinned,
@@ -163,8 +189,66 @@ export const commands: Command[] = [
   },
 ];
 
-const execute = (command: Command, ctx: CommandContext) =>
-  void Promise.resolve(command.run(ctx)).catch((err) => useApp.getState().notify(`${command.label} failed: ${err}`));
+/** Runs per command id, for proving that one trigger runs a command once. */
+export const commandRuns: Record<string, number> = {};
+
+function execute(command: Command, ctx: CommandContext) {
+  commandRuns[command.id] = (commandRuns[command.id] ?? 0) + 1;
+  const fail = (err: unknown) => useApp.getState().notify(`${command.label} failed: ${err}`);
+  try {
+    void Promise.resolve(command.run(ctx)).catch(fail);
+  } catch (err) {
+    fail(err);
+  }
+}
+
+const dynamic = (id: string, label: string, run: () => unknown): Command => ({ id, label, shortcuts: [], when: () => true, run: async () => void (await run()) });
+
+/** Contextual commands that depend on the open book, its collections, and the Library view. */
+export function paletteCommands(ctx: CommandContext): Command[] {
+  const s = useApp.getState();
+  const out: Command[] = [];
+  const manual = s.collections.filter((c) => c.kind === "manual");
+  if (ctx.bookId !== null) {
+    const id = ctx.bookId;
+    const book = s.books.find((b) => b.id === id) ?? (s.screen.name === "reader" ? s.screen.detail.book : null);
+    if (book?.reading_state !== "finished") out.push(dynamic("book.finished", "Mark as Finished", () => s.setReadingState(id, "finished")));
+    if (book?.reading_state !== "unread") out.push(dynamic("book.unread", "Mark as Unread", () => s.setReadingState(id, "unread")));
+    for (const c of manual) {
+      const member = book?.collection_ids.includes(c.id) ?? false;
+      out.push(
+        member
+          ? dynamic(`collection.remove.${c.id}`, `Remove from ${c.name}`, () => s.setMembership(c.id, [id], false))
+          : dynamic(`collection.add.${c.id}`, `Add to ${c.name}`, () => s.setMembership(c.id, [id], true)),
+      );
+    }
+  }
+  if (ctx.screen === "library") {
+    const current = s.uiSettings.library.collection_id;
+    if (current !== null) out.push(dynamic("collection.all", "Show All Books", () => s.setView({ collection_id: null })));
+    for (const c of s.collections) {
+      if (c.id !== current) out.push(dynamic(`collection.show.${c.id}`, `Show collection ${c.name}`, () => s.setView({ collection_id: c.id })));
+    }
+  }
+  out.push(
+    dynamic("collection.new", "New Collection…", () =>
+      s.setCollectionEditor({ mode: "create", addBookIds: ctx.bookId === null ? [] : [ctx.bookId] }),
+    ),
+  );
+  return out;
+}
+
+/** Everything the palette lists right now: registry commands that apply, then contextual ones. */
+export function paletteItems(ctx: CommandContext = commandContext()): Command[] {
+  return [...commands.filter((c) => c.palette !== false && c.when(ctx)), ...paletteCommands(ctx)];
+}
+
+/** Closes the palette, then runs the chosen command once. */
+export function runFromPalette(command: Command) {
+  const ctx = commandContext();
+  useApp.getState().setPaletteOpen(false);
+  if (command.when(ctx)) execute(command, ctx);
+}
 
 export function runCommand(id: string) {
   const ctx = commandContext();

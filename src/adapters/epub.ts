@@ -1,10 +1,12 @@
 import { makeBook, type FoliateBook, type FoliateTocItem } from "foliate-js/view.js";
 import { bookUrl, type ExtractedMetadata, type TextSegment, type TocItem } from "../lib/api";
+import { HTTP_FILE_CHANGED, reportFileChanged } from "../lib/fileChanged";
 
 export const EPUB_EXTRACTOR_VERSION = 1;
 
 export async function loadEpub(id: number, signal?: AbortSignal): Promise<FoliateBook> {
   const res = await fetch(bookUrl(id), { signal });
+  if (res.status === HTTP_FILE_CHANGED) reportFileChanged(id);
   if (!res.ok) throw new Error(`Book file unavailable (${res.status})`);
   const file = new File([await res.blob()], `${id}.epub`, { type: "application/epub+zip" });
   return makeBook(file);

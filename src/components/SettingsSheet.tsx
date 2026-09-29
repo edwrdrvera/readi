@@ -2,6 +2,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { Separator } from "@/components/ui/separator";
 import { useApp } from "@/lib/store";
 import { PrefsForm } from "./PrefsForm";
+import { AlwaysShowControlsSetting, ExcludedBooksSettings, WatchedFoldersSettings } from "./LibrarySettings";
 
 let opener: HTMLElement | null = null;
 export function openSettings() {
@@ -29,13 +30,19 @@ export function SettingsSheet() {
           <SheetDescription>Defaults for every book. Changes made while reading a book apply to that book only.</SheetDescription>
         </SheetHeader>
         <div className="flex flex-col gap-4 px-4 pb-6">
+          <h3 className="text-sm font-semibold">Reading</h3>
           <PrefsForm values={defaults} groups={["layout"]} onChange={(k, v) => void setDefault(k, v)} />
+          <AlwaysShowControlsSetting />
           <Separator />
           <h3 className="text-sm font-semibold">EPUB text</h3>
           <PrefsForm values={defaults} groups={["text"]} onChange={(k, v) => void setDefault(k, v)} />
           <Separator />
           <h3 className="text-sm font-semibold">PDF</h3>
           <PrefsForm values={defaults} groups={["pdf"]} onChange={(k, v) => void setDefault(k, v)} />
+          <Separator />
+          <WatchedFoldersSettings />
+          <Separator />
+          <ExcludedBooksSettings />
         </div>
       </SheetContent>
     </Sheet>
