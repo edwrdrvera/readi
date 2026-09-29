@@ -14,6 +14,12 @@ use tauri::{Manager, State};
 type Lib<'a> = State<'a, Arc<Library>>;
 
 #[derive(Serialize)]
+struct BookDetail {
+    book: BookSummary,
+    progress: Option<Progress>,
+}
+
+#[derive(Serialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 enum ImportOutcome {
     Imported { path: String, result: ImportResult },
@@ -39,6 +45,21 @@ async fn import_books(lib: Lib<'_>, paths: Vec<String>) -> Result<Vec<ImportOutc
     })
     .await
     .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn open_book(lib: Lib, id: i64) -> Result<BookDetail, String> {
+    let conn = lib.conn.lock().unwrap();
+    db::mark_opened(&conn, id)?;
+    Ok(BookDetail {
+        book: db::get_book(&conn, id)?.ok_or("Book not found")?,
+        progress: db::get_progress(&conn, id)?,
+    })
+}
+
+#[tauri::command]
+fn save_progress(lib: Lib, id: i64, locator: Locator, percent: f64) -> Result<i64, String> {
+    db::save_progress(&lib.conn.lock().unwrap(), id, &locator, percent)
 }
 
 #[tauri::command]
@@ -74,6 +95,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_books,
             import_books,
+            open_book,
+            save_progress,
             transport_stats,
         ])
         .run(tauri::generate_context!())

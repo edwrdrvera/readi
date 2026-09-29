@@ -39,6 +39,70 @@ impl Format {
     }
 }
 
+/// Reading position. Every locator carries its format and schema version so
+/// stored values stay interpretable after the frontend changes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "format", rename_all = "lowercase")]
+pub enum Locator {
+    Epub {
+        v: u32,
+        cfi: String,
+        section_index: u32,
+        section_fraction: f64,
+    },
+    Pdf {
+        v: u32,
+        page_index: u32,
+        x: f64,
+        y: f64,
+    },
+}
+
+pub const LOCATOR_VERSION: u32 = 1;
+const MAX_CFI_LEN: usize = 4096;
+
+impl Locator {
+    pub fn format(&self) -> Format {
+        match self {
+            Self::Epub { .. } => Format::Epub,
+            Self::Pdf { .. } => Format::Pdf,
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        let finite = |f: f64| f.is_finite();
+        match self {
+            Self::Epub { v, cfi, section_fraction, .. } => {
+                if *v != LOCATOR_VERSION {
+                    return Err(format!("unsupported locator version {v}"));
+                }
+                if cfi.len() > MAX_CFI_LEN || !cfi.starts_with("epubcfi(") {
+                    return Err("invalid CFI".into());
+                }
+                if !finite(*section_fraction) || !(0.0..=1.0).contains(section_fraction) {
+                    return Err("section_fraction out of range".into());
+                }
+            }
+            Self::Pdf { v, x, y, .. } => {
+                if *v != LOCATOR_VERSION {
+                    return Err(format!("unsupported locator version {v}"));
+                }
+                if !finite(*x) || !finite(*y) {
+                    return Err("non-finite PDF point".into());
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Progress {
+    pub locator: Locator,
+    pub percent: f64,
+    pub updated_at: i64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum IndexState {
@@ -111,6 +175,24 @@ pub fn clean_text(s: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn locator_round_trips_with_format_tag() {
+        let json = r#"{"format":"pdf","v":1,"page_index":412,"x":10.5,"y":700}"#;
+        let loc: Locator = serde_json::from_str(json).unwrap();
+        assert_eq!(loc.format(), Format::Pdf);
+        loc.validate().unwrap();
+    }
+
+    #[test]
+    fn locator_rejects_bad_values() {
+        let bad = Locator::Epub { v: 1, cfi: "javascript:1".into(), section_index: 0, section_fraction: 0.1 };
+        assert!(bad.validate().is_err());
+        let bad = Locator::Epub { v: 1, cfi: "epubcfi(/6/4)".into(), section_index: 0, section_fraction: 2.0 };
+        assert!(bad.validate().is_err());
+        let bad = Locator::Pdf { v: 2, page_index: 0, x: 0.0, y: 0.0 };
+        assert!(bad.validate().is_err());
+    }
 
     #[test]
     fn clean_text_strips_controls_and_truncates_on_boundary() {
