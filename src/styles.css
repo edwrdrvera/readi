@@ -23,5 +23,12 @@ button:focus-visible { outline: 2px solid #0a84ff; outline-offset: 2px; }
 .book:hover { background: color-mix(in srgb, var(--fg) 5%, transparent); }
 .book .title { font-weight: 600; }
 .book .meta { color: var(--muted); font-size: 12px; }
+.reader { display: flex; flex-direction: column; height: 100%; }
+.reader-chrome { display: flex; gap: 12px; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.reader-chrome > button { background: none; border: 0; color: #0a84ff; }
+.reader-title { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.save-error { margin-left: auto; color: #ff453a; }
+.epub-host { flex: 1; min-height: 0; background: var(--page); color: #1d1d1f; }
+.epub-host foliate-view { display: block; width: 100%; height: 100%; }
 .notices { position: fixed; bottom: 16px; right: 16px; display: flex; flex-direction: column; gap: 8px; }
 .notice { background: var(--fg); color: var(--bg); padding: 8px 12px; border-radius: 8px; font-size: 13px; max-width: 360px; }
