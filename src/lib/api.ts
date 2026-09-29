@@ -21,6 +21,12 @@ export interface BookSummary {
   opened_at: number | null;
 }
 
+export interface TocItem {
+  label: string;
+  target: string;
+  children: TocItem[];
+}
+
 export interface Progress {
   locator: Locator;
   percent: number;
@@ -30,11 +36,19 @@ export interface Progress {
 export interface BookDetail {
   book: BookSummary;
   progress: Progress | null;
+  toc: TocItem[];
 }
 
 export type ImportOutcome =
   | { status: "imported"; path: string; result: { book: BookSummary; already_in_library: boolean } }
   | { status: "failed"; path: string; reason: string };
+
+export interface ExtractedMetadata {
+  title: string | null;
+  authors: string[];
+  language: string | null;
+  toc: TocItem[];
+}
 
 export const bookUrl = (id: number) => `book://localhost/${id}`;
 
@@ -44,5 +58,9 @@ export const api = {
   openBook: (id: number) => invoke<BookDetail>("open_book", { id }),
   saveProgress: (id: number, locator: Locator, percent: number) =>
     invoke<number>("save_progress", { id, locator, percent }),
+  claimExtractionJob: (reclaimStale: boolean) =>
+    invoke<BookSummary | null>("claim_extraction_job", { reclaimStale }),
+  submitMetadata: (id: number, metadata: ExtractedMetadata) => invoke<void>("submit_metadata", { id, metadata }),
+  failExtraction: (id: number, error: string) => invoke<void>("fail_extraction", { id, error }),
   transportStats: (id: number) => invoke<{ requests: number; bytes: number }>("transport_stats", { id }),
 };

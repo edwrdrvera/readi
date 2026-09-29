@@ -1,6 +1,6 @@
 import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.mjs?url";
-import { bookUrl } from "../lib/api";
+import { bookUrl, type ExtractedMetadata, type TocItem } from "../lib/api";
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -65,3 +65,40 @@ export function loadPdf(id: number, length: number) {
 }
 
 export type PdfDoc = pdfjs.PDFDocumentProxy;
+
+async function outlineToToc(doc: PdfDoc, items: Awaited<ReturnType<PdfDoc["getOutline"]>> | null | undefined): Promise<TocItem[]> {
+  const out: TocItem[] = [];
+  for (const item of items ?? []) {
+    let page: number | null = null;
+    try {
+      const dest = typeof item.dest === "string" ? await doc.getDestination(item.dest) : item.dest;
+      if (dest?.[0]) page = typeof dest[0] === "number" ? dest[0] : await doc.getPageIndex(dest[0]);
+    } catch {
+      page = null;
+    }
+    const children = await outlineToToc(doc, item.items);
+    if (page === null && children.length === 0) continue;
+    out.push({ label: item.title.trim() || "Untitled", target: String(page ?? children[0].target), children });
+  }
+  return out;
+}
+
+export async function pdfMetadata(doc: PdfDoc): Promise<ExtractedMetadata> {
+  const { info } = (await doc.getMetadata().catch(() => ({ info: {} }))) as { info: Record<string, unknown> };
+  let toc = await outlineToToc(doc, await doc.getOutline().catch(() => null));
+  if (toc.length === 0) {
+    const labels = await doc.getPageLabels().catch(() => null);
+    toc = Array.from({ length: doc.numPages }, (_, i) => ({
+      label: `Page ${labels?.[i] ?? i + 1}`,
+      target: String(i),
+      children: [],
+    }));
+  }
+  const str = (v: unknown) => (typeof v === "string" && v.trim() ? v : null);
+  return {
+    title: str(info.Title),
+    authors: str(info.Author) ? [info.Author as string] : [],
+    language: str(info.Language),
+    toc,
+  };
+}
