@@ -39,6 +39,59 @@ impl Format {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IndexState {
+    Queued,
+    Indexing,
+    Ready,
+    NoSearchableText,
+    Failed,
+}
+
+impl IndexState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Queued => "queued",
+            Self::Indexing => "indexing",
+            Self::Ready => "ready",
+            Self::NoSearchableText => "no_searchable_text",
+            Self::Failed => "failed",
+        }
+    }
+
+    pub fn parse(s: &str) -> Self {
+        match s {
+            "indexing" => Self::Indexing,
+            "ready" => Self::Ready,
+            "no_searchable_text" => Self::NoSearchableText,
+            "failed" => Self::Failed,
+            _ => Self::Queued,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BookSummary {
+    pub id: i64,
+    pub sha256: String,
+    pub format: Format,
+    pub title: String,
+    pub authors: Vec<String>,
+    pub reading_state: String,
+    pub metadata_ready: bool,
+    pub index_state: IndexState,
+    pub file_size: u64,
+    pub added_at: i64,
+    pub opened_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ImportResult {
+    pub book: BookSummary,
+    pub already_in_library: bool,
+}
+
 pub const MAX_TITLE: usize = 1024;
 
 /// Strips control characters and truncates on a char boundary.
