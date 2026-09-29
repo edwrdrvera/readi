@@ -157,6 +157,69 @@ fn migrate(conn: &Connection, path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+fn summary_from_row(r: &rusqlite::Row) -> rusqlite::Result<BookSummary> {
+    let format: String = r.get("format")?;
+    let authors: String = r.get("authors")?;
+    let index_state: Option<String> = r.get("index_state")?;
+    Ok(BookSummary {
+        id: r.get("id")?,
+        sha256: r.get("sha256")?,
+        format: Format::parse(&format).unwrap_or(Format::Epub),
+        title: r.get("title")?,
+        authors: serde_json::from_str(&authors).unwrap_or_default(),
+        reading_state: r.get("reading_state")?,
+        metadata_ready: r.get::<_, i64>("metadata_ready")? != 0,
+        index_state: IndexState::parse(index_state.as_deref().unwrap_or("queued")),
+        file_size: r.get::<_, i64>("file_size")? as u64,
+        added_at: r.get("added_at")?,
+        opened_at: r.get("opened_at")?,
+    })
+}
+
+const SUMMARY_SELECT: &str = "SELECT b.*, j.state AS index_state FROM books b LEFT JOIN extraction_jobs j ON j.book_id = b.id";
+
+pub fn get_book(conn: &Connection, id: i64) -> Result<Option<BookSummary>, String> {
+    conn.query_row(&format!("{SUMMARY_SELECT} WHERE b.id = ?1"), [id], summary_from_row)
+        .optional()
+        .map_err(|e| e.to_string())
+}
+
+pub fn find_by_hash(conn: &Connection, sha: &str) -> Result<Option<i64>, String> {
+    conn.query_row("SELECT id FROM books WHERE sha256 = ?1", [sha], |r| r.get(0))
+        .optional()
+        .map_err(|e| e.to_string())
+}
+
+pub fn insert_managed_book(
+    conn: &Connection,
+    sha: &str,
+    format: Format,
+    fallback_title: &str,
+    size: u64,
+    rel_path: &str,
+) -> Result<i64, String> {
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    let t = now();
+    tx.execute(
+        "INSERT INTO books (sha256, format, title, file_size, added_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![sha, format.as_str(), fallback_title, size as i64, t],
+    )
+    .map_err(|e| e.to_string())?;
+    let id = tx.last_insert_rowid();
+    tx.execute(
+        "INSERT INTO book_locations (book_id, kind, path, observed_size) VALUES (?1, 'managed', ?2, ?3)",
+        params![id, rel_path, size as i64],
+    )
+    .map_err(|e| e.to_string())?;
+    tx.execute(
+        "INSERT INTO extraction_jobs (book_id, state, updated_at) VALUES (?1, 'queued', ?2)",
+        params![id, t],
+    )
+    .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
