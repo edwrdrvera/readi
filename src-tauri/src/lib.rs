@@ -93,6 +93,11 @@ fn transport_stats(stats: State<Arc<TransportStats>>, id: i64) -> protocol::Stat
     stats.0.lock().unwrap().get(&id).copied().unwrap_or_default()
 }
 
+#[tauri::command]
+fn count_text_matches(lib: Lib, id: i64, word: String) -> Result<i64, String> {
+    db::search_count(&lib.conn.lock().unwrap(), id, &word)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let stats = Arc::new(TransportStats::default());
@@ -128,6 +133,7 @@ pub fn run() {
             submit_text,
             fail_extraction,
             transport_stats,
+            count_text_matches,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

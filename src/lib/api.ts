@@ -71,4 +71,5 @@ export const api = {
     invoke<IndexState>("submit_text", { id, extractorVersion, segments }),
   failExtraction: (id: number, error: string) => invoke<void>("fail_extraction", { id, error }),
   transportStats: (id: number) => invoke<{ requests: number; bytes: number }>("transport_stats", { id }),
+  countTextMatches: (id: number, word: string) => invoke<number>("count_text_matches", { id, word }),
 };
