@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { TextMapping } from "./textmap";
 import type { Overrides, PrefKey, Prefs } from "./prefs";
 
 export type Format = "epub" | "pdf";
@@ -131,7 +132,104 @@ export interface TextSegment {
   order: number;
   label: string | null;
   text: string;
+  /** Present from extractor version 2. See lib/textmap.ts. */
+  mapping: TextMapping | null;
 }
+
+/** A point inside an extraction unit: [unit index, UTF-16 offset in that unit]. See lib/textmap.ts. */
+export type UnitPoint = [number, number];
+
+export interface SearchHit {
+  /** EPUB section index or zero-based PDF page index. */
+  order: number;
+  /** Section label, or null for PDF pages. */
+  label: string | null;
+  /** Matched text as indexed, for verifying the resolved range. */
+  match_text: string;
+  /** Surrounding text with whitespace collapsed; the match is snippet[match[0]..match[1]] in UTF-16 units. */
+  snippet: string;
+  snippet_match: [number, number];
+  /** Absent when the segment has no usable mapping; the hit then opens its section or page as approximate. */
+  range: { start: UnitPoint; end: UnitPoint } | null;
+}
+
+export interface SearchGroup {
+  order: number;
+  label: string | null;
+  hits: SearchHit[];
+}
+
+export interface BookSearch {
+  /** The book's index state when the search ran. Only "ready" means an empty result is "no matches". */
+  index_state: IndexState;
+  groups: SearchGroup[];
+  /** More hits exist than were returned. */
+  truncated: boolean;
+}
+
+export interface LibraryBookResult {
+  book: BookSummary;
+  /** Title or an author matched every query term. */
+  metadata_match: boolean;
+  /** Up to 3 text hits, best first. */
+  hits: SearchHit[];
+}
+
+export interface LibrarySearch {
+  /** Metadata matches first, then text relevance. */
+  results: LibraryBookResult[];
+  /** Books whose index is queued or indexing, so text results may be incomplete. */
+  indexing: number;
+  /** Books with no searchable text (for example image-only PDFs). */
+  no_text: number;
+  failed: number;
+}
+
+export type HighlightColor = "yellow" | "green" | "blue" | "pink";
+export const HIGHLIGHT_COLORS: HighlightColor[] = ["yellow", "green", "blue", "pink"];
+
+/** Where an annotation points. Bookmarks use "position"; highlights use a range. */
+export type Anchor =
+  | { type: "position"; locator: Locator }
+  | { type: "epub_range"; v: 1; cfi: string; section_index: number }
+  | { type: "pdf_quads"; v: 1; page_index: number; quads: Array<[number, number, number, number, number, number, number, number]> };
+
+/** "unknown" until the reader has tried to resolve it this session or before. */
+export type AnchorState = "unknown" | "resolved" | "unresolved";
+
+export interface Annotation {
+  id: number;
+  book_id: number;
+  kind: "highlight" | "bookmark";
+  anchor: Anchor;
+  quote: string | null;
+  context: string | null;
+  color: HighlightColor | null;
+  note: string | null;
+  /** Reading order: section or page index plus the fraction within it. */
+  sort_key: number;
+  anchor_state: AnchorState;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface NewAnnotation {
+  book_id: number;
+  kind: Annotation["kind"];
+  anchor: Anchor;
+  quote: string | null;
+  context: string | null;
+  color: HighlightColor | null;
+  note: string | null;
+  sort_key: number;
+}
+
+/** Fields to change. `note: null` clears the note; an absent key leaves it. */
+export interface AnnotationPatch {
+  color?: HighlightColor;
+  note?: string | null;
+}
+
 
 export const bookUrl = (id: number) => `book://localhost/${id}`;
 export const coverUrl = (id: number) => `book://localhost/${id}/cover`;
@@ -177,6 +275,17 @@ export const api = {
   submitText: (id: number, extractorVersion: number, segments: TextSegment[]) =>
     invoke<IndexState>("submit_text", { id, extractorVersion, segments }),
   failExtraction: (id: number, error: string) => invoke<void>("fail_extraction", { id, error }),
+  /** Requeues a failed extraction job. */
+  retryExtraction: (id: number) => invoke<void>("retry_extraction", { id }),
+  /** Queues a rebuild of the book's text index; progress and annotations are untouched. */
+  reindexBook: (id: number) => invoke<void>("reindex_book", { id }),
+  searchBook: (id: number, query: string) => invoke<BookSearch>("search_book", { id, query }),
+  searchLibrary: (query: string) => invoke<LibrarySearch>("search_library", { query }),
+  listAnnotations: (bookId: number) => invoke<Annotation[]>("list_annotations", { bookId }),
+  createAnnotation: (annotation: NewAnnotation) => invoke<Annotation>("create_annotation", { annotation }),
+  updateAnnotation: (id: number, patch: AnnotationPatch) => invoke<Annotation>("update_annotation", { id, patch }),
+  deleteAnnotation: (id: number) => invoke<void>("delete_annotation", { id }),
+  setAnchorStates: (states: Array<[number, AnchorState]>) => invoke<void>("set_anchor_states", { states }),
   transportStats: (id: number) => invoke<{ requests: number; bytes: number }>("transport_stats", { id }),
   countTextMatches: (id: number, word: string) => invoke<number>("count_text_matches", { id, word }),
   getPrefs: (bookId?: number) => invoke<{ defaults: Prefs; overrides: Overrides }>("get_prefs", { bookId: bookId ?? null }),

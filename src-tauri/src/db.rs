@@ -790,7 +790,7 @@ mod tests {
         let (_d, conn) = fresh();
         let id = insert_managed_book(&conn, "abc", Format::Epub, "file", 10, "abc.epub").unwrap();
         assert_eq!(claim_job(&conn, false).unwrap(), Some(id));
-        let seg = |t: &str| TextSegment { order: 0, label: None, text: t.into() };
+        let seg = |t: &str| TextSegment { order: 0, label: None, text: t.into(), mapping: None };
         replace_text(&conn, id, 1, &[seg("alpha bravo")]).unwrap();
         replace_text(&conn, id, 2, &[seg("charlie")]).unwrap();
         assert_eq!(search_count(&conn, id, "alpha").unwrap(), 0);

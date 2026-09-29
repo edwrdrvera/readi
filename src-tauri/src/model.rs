@@ -423,7 +423,144 @@ pub struct TextSegment {
     pub order: u32,
     pub label: Option<String>,
     pub text: String,
+    /// Present from extractor version 2. Without it, hits open as approximate.
+    #[serde(default)]
+    pub mapping: Option<TextMapping>,
 }
+
+/// Current text mapping version. See src/lib/textmap.ts.
+pub const TEXT_MAP_VERSION: u32 = 1;
+
+/// Maps a segment's indexed text back to its extraction units.
+/// Each entry is [start offset in the segment text, unit index, unit length],
+/// in UTF-16 code units, sorted by start.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TextMapping {
+    pub v: u32,
+    pub units: Vec<[u32; 3]>,
+}
+
+/// [unit index, UTF-16 offset inside that unit].
+pub type UnitPoint = [u32; 2];
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct HitRange {
+    pub start: UnitPoint,
+    pub end: UnitPoint,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SearchHit {
+    pub order: u32,
+    pub label: Option<String>,
+    pub match_text: String,
+    pub snippet: String,
+    pub snippet_match: [u32; 2],
+    pub range: Option<HitRange>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SearchGroup {
+    pub order: u32,
+    pub label: Option<String>,
+    pub hits: Vec<SearchHit>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BookSearch {
+    pub index_state: IndexState,
+    pub groups: Vec<SearchGroup>,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LibraryBookResult {
+    pub book: BookSummary,
+    pub metadata_match: bool,
+    pub hits: Vec<SearchHit>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LibrarySearch {
+    pub results: Vec<LibraryBookResult>,
+    pub indexing: u32,
+    pub no_text: u32,
+    pub failed: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AnnotationKind {
+    Highlight,
+    Bookmark,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum HighlightColor {
+    Yellow,
+    Green,
+    Blue,
+    Pink,
+}
+
+/// Where an annotation points. Bookmarks use `Position`; highlights a range.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum Anchor {
+    Position { locator: Locator },
+    EpubRange { v: u32, cfi: String, section_index: u32 },
+    PdfQuads { v: u32, page_index: u32, quads: Vec<[f64; 8]> },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AnchorState {
+    Unknown,
+    Resolved,
+    Unresolved,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Annotation {
+    pub id: i64,
+    pub book_id: i64,
+    pub kind: AnnotationKind,
+    pub anchor: Anchor,
+    pub quote: Option<String>,
+    pub context: Option<String>,
+    pub color: Option<HighlightColor>,
+    pub note: Option<String>,
+    pub sort_key: f64,
+    pub anchor_state: AnchorState,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct NewAnnotation {
+    pub book_id: i64,
+    pub kind: AnnotationKind,
+    pub anchor: Anchor,
+    pub quote: Option<String>,
+    pub context: Option<String>,
+    pub color: Option<HighlightColor>,
+    pub note: Option<String>,
+    pub sort_key: f64,
+}
+
+/// `note: Some(None)` clears the note; an absent field is unchanged.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct AnnotationPatch {
+    pub color: Option<HighlightColor>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub note: Option<Option<String>>,
+}
+
+fn double_option<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Option<String>>, D::Error> {
+    Option::<String>::deserialize(d).map(Some)
+}
+
 
 pub const MAX_TITLE: usize = 1024;
 pub const MAX_AUTHORS: usize = 32;

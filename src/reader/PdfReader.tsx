@@ -4,7 +4,7 @@ import { loadPdf, type PdfDoc, type PdfPage } from "../adapters/pdf";
 import { backHistory } from "../lib/history";
 import type { Prefs } from "../lib/prefs";
 import { useApp } from "../lib/store";
-import { setActiveReader, type RestoreQuality } from "./handle";
+import { annotationsPending, setActiveReader, type RestoreQuality } from "./handle";
 import { fitScale, pageAt, pageLabel, pageSize, spreadOf, stack, stepSpread, toPdf, toViewport, type PageGeom } from "./pdfLayout";
 import { useSaver } from "./useSaver";
 import "./pdf.css";
@@ -435,6 +435,7 @@ export function PdfReader({ detail, prefs }: { detail: BookDetail; prefs: Prefs 
   useEffect(() => {
     const view = pending.view.promise;
     setActiveReader({
+      ...annotationsPending,
       bookId,
       ready: pending.ready.promise,
       dir: () => "ltr",

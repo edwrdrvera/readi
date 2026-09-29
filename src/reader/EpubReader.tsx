@@ -10,7 +10,7 @@ import { THEME_COLORS, type Prefs, type Theme } from "../lib/prefs";
 import { useApp } from "../lib/store";
 import { useResolvedTheme } from "../lib/theme";
 import { readerActivity } from "./activity";
-import { setActiveReader, type RestoreQuality } from "./handle";
+import { annotationsPending, setActiveReader, type RestoreQuality } from "./handle";
 import { useSaver } from "./useSaver";
 
 const NOT_CODE = ":not(pre, code, kbd, samp, tt, pre *, code *, kbd *, samp *, math, math *, svg, svg *)";
@@ -194,6 +194,7 @@ export function EpubReader({ detail, prefs }: { detail: BookDetail; prefs: Prefs
     };
 
     setActiveReader({
+      ...annotationsPending,
       bookId,
       ready,
       location: () => location,

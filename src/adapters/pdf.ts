@@ -136,7 +136,7 @@ export async function pdfText(id: number, length: number, numPages: number, sign
       for (let i = first; i < Math.min(numPages, first + PAGES_PER_DOCUMENT); i++) {
         signal?.throwIfAborted();
         const page = await doc.getPage(i + 1);
-        segments.push({ order: i, label: null, text: (await readTextItems(page)).join(" ") });
+        segments.push({ order: i, label: null, text: (await readTextItems(page)).join(" "), mapping: null });
         page.cleanup();
       }
     } finally {

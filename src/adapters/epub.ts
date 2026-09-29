@@ -71,7 +71,7 @@ export async function epubText(book: FoliateBook, signal?: AbortSignal): Promise
     signal?.throwIfAborted();
     const doc = await section.createDocument();
     const text = doc.body?.textContent ?? "";
-    segments.push({ order, label: doc.title || null, text });
+    segments.push({ order, label: doc.title || null, text, mapping: null });
     await yieldToUi();
   }
   return segments;
