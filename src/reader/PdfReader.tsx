@@ -83,9 +83,17 @@ export function PdfReader({ detail }: { detail: BookDetail }) {
       bookId: detail.book.id,
       ready: readyRef.current!.promise,
       location: () => ({ format: "pdf", v: 1, page_index: pageRef.current, x: 0, y: 0 }),
+      dir: () => "ltr",
       next: () => go(pageRef.current + 1),
       prev: () => go(pageRef.current - 1),
+      goLeft: () => go(pageRef.current - 1),
+      goRight: () => go(pageRef.current + 1),
+      scrollBy: () => {},
       goTo: (t) => go(Number(t)),
+      goToLocator: async (l) => (l.format === "pdf" && (await go(l.page_index)), "exact"),
+      settled: () => readyRef.current!.promise,
+      anchor: () => `p${pageRef.current}@0,0`,
+      isVisible: (a) => a.startsWith(`p${pageRef.current}@`),
       flush: () => saver.flush(),
     });
     return () => setActiveReader(null);

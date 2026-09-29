@@ -43,6 +43,8 @@ declare module "foliate-js/view.js" {
     goToFraction(frac: number): Promise<void>;
     next(): Promise<void>;
     prev(): Promise<void>;
+    goLeft(): Promise<void>;
+    goRight(): Promise<void>;
     close(): void;
   }
 }
