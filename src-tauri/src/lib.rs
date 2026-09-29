@@ -19,6 +19,11 @@ enum ImportOutcome {
 }
 
 #[tauri::command]
+fn list_books(lib: Lib) -> Result<Vec<BookSummary>, String> {
+    db::list_books(&lib.conn.lock().unwrap())
+}
+
+#[tauri::command]
 async fn import_books(lib: Lib<'_>, paths: Vec<String>) -> Result<Vec<ImportOutcome>, String> {
     let lib = lib.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -50,6 +55,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            list_books,
             import_books,
         ])
         .run(tauri::generate_context!())

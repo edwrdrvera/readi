@@ -22,5 +22,6 @@ export type ImportOutcome =
   | { status: "failed"; path: string; reason: string };
 
 export const api = {
+  listBooks: () => invoke<BookSummary[]>("list_books"),
   importBooks: (paths: string[]) => invoke<ImportOutcome[]>("import_books", { paths }),
 };
