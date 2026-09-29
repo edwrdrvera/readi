@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { Availability } from "@/lib/api";
+import { api, type Availability, type BookSummary } from "@/lib/api";
+import { extraction } from "@/lib/extraction";
 import { useApp } from "@/lib/store";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -72,6 +73,7 @@ export function BookInfoSheet() {
                 </ul>
               )}
             </section>
+            <SearchIndex book={book} />
             <div className="flex flex-col gap-1.5">
               <Button variant="outline" className="self-start" onClick={() => void locate()}>
                 Locate…
@@ -86,5 +88,39 @@ export function BookInfoSheet() {
         )}
       </SheetContent>
     </Sheet>
+  );
+}
+
+const INDEX_TEXT: Record<BookSummary["index_state"], string> = {
+  queued: "Waiting to be indexed. Search results may be incomplete until it finishes.",
+  indexing: "Indexing. Search results may be incomplete until it finishes.",
+  ready: "Ready.",
+  no_searchable_text: "This book has no searchable text (for example, a scanned PDF).",
+  failed: "Indexing failed.",
+};
+
+function SearchIndex({ book }: { book: BookSummary }) {
+  const mutate = useApp((s) => s.mutate);
+  const run = (label: string, fn: () => Promise<void>) =>
+    void mutate(label, fn).then((ok) => {
+      if (ok) extraction.kick();
+    });
+  return (
+    <section className="flex flex-col gap-2" data-testid="book-index" data-state={book.index_state}>
+      <h3 className="font-semibold">Search index</h3>
+      <p className={book.index_state === "failed" ? "text-destructive" : "text-muted-foreground"}>{INDEX_TEXT[book.index_state]}</p>
+      <div className="flex gap-2">
+        {book.index_state === "failed" && (
+          <Button variant="outline" size="sm" data-testid="index-retry" onClick={() => run("Could not retry indexing", () => api.retryExtraction(book.id))}>
+            Retry
+          </Button>
+        )}
+        {(book.index_state === "ready" || book.index_state === "no_searchable_text") && (
+          <Button variant="outline" size="sm" data-testid="index-rebuild" onClick={() => run("Could not rebuild the search index", () => api.reindexBook(book.id))}>
+            Rebuild search index
+          </Button>
+        )}
+      </div>
+    </section>
   );
 }

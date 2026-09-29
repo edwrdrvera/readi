@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { EVENTS, type ImportJob } from "./lib/api";
+import { EVENTS, type BookDetail, type ImportJob } from "./lib/api";
 import { extraction } from "./lib/extraction";
 import { handleKeydown, runCommand } from "./lib/commands";
 import { importPaths } from "./lib/importing";
@@ -14,7 +14,10 @@ import { BookInfoSheet } from "@/components/BookInfoSheet";
 import { CollectionEditor } from "@/components/CollectionEditor";
 import { CommandPalette } from "@/components/CommandPalette";
 import { Confirmations } from "@/components/Confirmations";
-import { ContentsSidebar } from "@/components/ContentsSidebar";
+import { AnnotationEditor } from "@/components/AnnotationEditor";
+import { HighlightPopover, useReaderAnnotations } from "@/components/HighlightPopover";
+import { LibrarySearch } from "@/components/LibrarySearch";
+import { ReaderSidebar } from "@/components/ReaderSidebar";
 import { ImportJobs } from "@/components/ImportJobs";
 import { Library } from "@/components/Library";
 import { ReaderChrome } from "@/components/ReaderChrome";
@@ -28,12 +31,16 @@ function useReaderPrefs() {
 
 function Reader() {
   const screen = useApp((s) => s.screen);
-  const prefs = useReaderPrefs();
   if (screen.name !== "reader") return null;
-  const { detail } = screen;
+  return <OpenBook key={screen.detail.book.id} detail={screen.detail} />;
+}
+
+function OpenBook({ detail }: { detail: BookDetail }) {
+  const prefs = useReaderPrefs();
+  useReaderAnnotations(detail.book.id);
   return (
     <main className="relative flex h-full overflow-hidden bg-reader">
-      <ContentsSidebar detail={detail} />
+      <ReaderSidebar detail={detail} />
       <div className="relative flex min-w-0 flex-1 flex-col">
         <ReaderChrome detail={detail} prefs={prefs} />
         {detail.book.format === "epub" ? (
@@ -42,6 +49,8 @@ function Reader() {
           <PdfReader key={detail.book.id} detail={detail} prefs={prefs} />
         )}
       </div>
+      <HighlightPopover />
+      <AnnotationEditor />
     </main>
   );
 }
@@ -98,6 +107,7 @@ export default function App() {
       <Confirmations />
       <CollectionEditor />
       <CommandPalette />
+      <LibrarySearch />
       <ImportJobs />
       {dragging && (
         <div data-drop-overlay className="pointer-events-none fixed inset-2 z-50 flex items-center justify-center rounded-xl border-2 border-dashed border-primary bg-background/80 text-lg font-medium">
