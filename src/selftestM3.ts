@@ -307,7 +307,12 @@ async function watchLive(m3: M3Config): Promise<Report> {
     }, 5000);
     input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     const finished = await until("book finished", async () => (await books()).find((b) => b.id === id)?.reading_state === "finished", 5000).catch(() => false);
-    const closed = await until("palette closed", () => !s().paletteOpen && !document.querySelector("[cmdk-input]"), 3000).catch(() => false);
+    // The exit animation, and so the unmount, stalls while the window is hidden; data-state flips at once.
+    const dialogClosed = () => {
+      const dialog = document.querySelector("[cmdk-input]")?.closest<HTMLElement>('[role="dialog"]');
+      return !dialog || dialog.dataset.state === "closed";
+    };
+    const closed = await until("palette closed", () => !s().paletteOpen && dialogClosed(), 3000).catch(() => false);
     const runs = (commandRuns["book.finished"] ?? 0) - before;
     await s().closeBook();
     return { opened, selected: selected.dataset.commandId, runs, finished, closed };
