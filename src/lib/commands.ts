@@ -19,6 +19,12 @@ export interface Shortcut {
   key: string;
   meta?: boolean;
   shift?: boolean;
+  /**
+   * The native menu item owns this chord as its accelerator, so handleKeydown
+   * skips it. Whether WebKit also delivers keydown for a menu key equivalent is
+   * unreliable, and running from both paths would fire the command twice.
+   */
+  viaMenu?: boolean;
 }
 
 export interface Command {
@@ -89,13 +95,13 @@ export function closeSidebar() {
 const themeCommand = (theme: Theme, n: number): Command => ({
   id: `theme.${theme}`,
   label: `${theme[0].toUpperCase()}${theme.slice(1)} theme`,
-  shortcuts: [{ key: String(n), meta: true }],
+  shortcuts: [{ key: String(n), meta: true, viaMenu: true }],
   when: () => true,
   run: (ctx) => setPref(ctx, "theme", theme),
 });
 
 export const commands: Command[] = [
-  { id: "library.import", label: "Import…", shortcuts: [{ key: "o", meta: true }], when: () => true, run: () => pickAndImport() },
+  { id: "library.import", label: "Import…", shortcuts: [{ key: "o", meta: true, viaMenu: true }], when: () => true, run: () => pickAndImport() },
   {
     id: "library.return",
     label: "Return to Library",
@@ -106,7 +112,7 @@ export const commands: Command[] = [
   {
     id: "sidebar.toggle",
     label: "Toggle Contents",
-    shortcuts: [{ key: "\\", meta: true }],
+    shortcuts: [{ key: "\\", meta: true, viaMenu: true }],
     when: (ctx) => ctx.screen === "reader",
     run: () => (useApp.getState().sidebar.open ? closeSidebar() : openSidebar()),
   },
@@ -119,14 +125,14 @@ export const commands: Command[] = [
   {
     id: "nav.back",
     label: "Back",
-    shortcuts: [{ key: "[", meta: true }],
+    shortcuts: [{ key: "[", meta: true, viaMenu: true }],
     when: (ctx) => inReader(ctx) && backHistory.size(ctx.bookId!) > 0,
     run: (ctx) => goBack(ctx),
   },
   {
     id: "mode.toggle",
     label: "Toggle vertical/horizontal",
-    shortcuts: [{ key: "v", meta: true, shift: true }],
+    shortcuts: [{ key: "v", meta: true, shift: true, viaMenu: true }],
     when: () => true,
     run: (ctx) => setPref(ctx, "reading_mode", ctx.prefs.reading_mode === "vertical" ? "horizontal" : "vertical"),
   },
@@ -136,14 +142,14 @@ export const commands: Command[] = [
   {
     id: "text.bigger",
     label: "Larger text or zoom in",
-    shortcuts: [{ key: "=", meta: true }, { key: "+", meta: true }, { key: "+", meta: true, shift: true }],
+    shortcuts: [{ key: "=", meta: true, viaMenu: true }, { key: "+", meta: true }, { key: "+", meta: true, shift: true }],
     when: inReader,
     run: (ctx) => sizeStep(ctx, 1),
   },
   {
     id: "text.smaller",
     label: "Smaller text or zoom out",
-    shortcuts: [{ key: "-", meta: true }],
+    shortcuts: [{ key: "-", meta: true, viaMenu: true }],
     when: inReader,
     run: (ctx) => sizeStep(ctx, -1),
   },
@@ -156,6 +162,14 @@ export const commands: Command[] = [
     run: () => closeSidebar(),
   },
 ];
+
+/** Entry point for native menu events. */
+export function runCommand(id: string) {
+  const ctx = commandContext();
+  const command = commands.find((c) => c.id === id);
+  if (!command || !command.when(ctx)) return;
+  void Promise.resolve(command.run(ctx)).catch((err) => useApp.getState().notify(`${command.label} failed: ${err}`));
+}
 
 const EDITABLE = "input, textarea, select, [contenteditable]:not([contenteditable='false'])";
 const CONTROLS = "button, a[href], [role=radiogroup], [role=group], [role=dialog], [role=tree], summary";
@@ -172,7 +186,7 @@ export function handleKeydown(e: KeyboardEvent) {
   const target = e.target as Element | null;
   if (target?.closest?.(EDITABLE)) return;
   const ctx = commandContext();
-  const command = commands.find((c) => c.shortcuts.some((s) => matches(s, e)) && c.when(ctx));
+  const command = commands.find((c) => c.shortcuts.some((s) => !s.viaMenu && matches(s, e)) && c.when(ctx));
   if (!command) return;
   if (command.yieldsToControls && target?.closest?.(CONTROLS)) return;
   e.preventDefault();

@@ -1,8 +1,9 @@
 import { useEffect, useMemo } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { Settings } from "lucide-react";
 import { extraction } from "./lib/extraction";
-import { handleKeydown } from "./lib/commands";
+import { handleKeydown, runCommand } from "./lib/commands";
 import { importPaths, pickAndImport } from "./lib/importing";
 import { resolvePrefs } from "./lib/prefs";
 import { useApp } from "./lib/store";
@@ -99,8 +100,10 @@ export default function App() {
     const drop = getCurrentWebview().onDragDropEvent((e) => {
       if (e.payload.type === "drop") void importPaths(e.payload.paths);
     });
+    const menu = listen<string>("menu-command", (e) => runCommand(e.payload));
     window.addEventListener("keydown", handleKeydown);
     return () => {
+      void menu.then((u) => u());
       off();
       void drop.then((u) => u());
       window.removeEventListener("keydown", handleKeydown);
