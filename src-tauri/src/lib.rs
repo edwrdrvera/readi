@@ -1,3 +1,4 @@
+mod annotations;
 mod db;
 mod jobs;
 mod library;
@@ -188,6 +189,31 @@ fn search_book(lib: Lib, id: i64, query: String) -> Result<BookSearch, String> {
 #[tauri::command]
 fn search_library(lib: Lib, query: String) -> Result<LibrarySearch, String> {
     search::search_library(&lib.conn.lock().unwrap(), &query)
+}
+
+#[tauri::command]
+fn list_annotations(lib: Lib, book_id: i64) -> Result<Vec<Annotation>, String> {
+    annotations::list(&lib.conn.lock().unwrap(), book_id)
+}
+
+#[tauri::command]
+fn create_annotation(lib: Lib, annotation: NewAnnotation) -> Result<Annotation, String> {
+    annotations::create(&lib.conn.lock().unwrap(), annotation)
+}
+
+#[tauri::command]
+fn update_annotation(lib: Lib, id: i64, patch: AnnotationPatch) -> Result<Annotation, String> {
+    annotations::update(&lib.conn.lock().unwrap(), id, patch)
+}
+
+#[tauri::command]
+fn delete_annotation(lib: Lib, id: i64) -> Result<(), String> {
+    annotations::delete(&lib.conn.lock().unwrap(), id)
+}
+
+#[tauri::command]
+fn set_anchor_states(lib: Lib, states: Vec<(i64, AnchorState)>) -> Result<(), String> {
+    annotations::set_anchor_states(&lib.conn.lock().unwrap(), &states)
 }
 
 #[tauri::command]
@@ -427,6 +453,11 @@ pub fn run() {
             reindex_book,
             search_book,
             search_library,
+            list_annotations,
+            create_annotation,
+            update_annotation,
+            delete_annotation,
+            set_anchor_states,
             transport_stats,
             count_text_matches,
             get_prefs,
