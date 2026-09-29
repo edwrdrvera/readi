@@ -321,12 +321,12 @@ export const useApp = create<AppState>((set, get) => ({
   },
   async openBook(id) {
     const known = get().books.find((b) => b.id === id);
-    if (known && !known.available) return get().showBookInfo(id);
+    if (known?.available === false) return get().showBookInfo(id);
     try {
       await activeReader()?.flush();
       // Prefs load before the reader mounts so it lays out once, in the right mode.
       const [detail, prefs] = await Promise.all([api.openBook(id), api.getPrefs(id)]);
-      if (!detail.book.available) {
+      if (detail.book.available === false) {
         set((s) => ({ locations: { ...s.locations, [id]: detail.locations } }));
         return get().showBookInfo(id);
       }
