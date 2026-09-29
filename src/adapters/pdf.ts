@@ -2,10 +2,11 @@ import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.mjs?url";
 import { bookUrl, type ExtractedMetadata, type TextSegment, type TocItem } from "../lib/api";
 import { HTTP_FILE_CHANGED, reportFileChanged } from "../lib/fileChanged";
+import { pageSegment, type PdfTextItem } from "../reader/pdfAnchors";
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
-export const PDF_EXTRACTOR_VERSION = 1;
+export const PDF_EXTRACTOR_VERSION = 2;
 const MAX_REQUEST = 4 << 20; // matches the book:// protocol cap
 
 /**
@@ -69,6 +70,8 @@ export function loadPdf(id: number, length: number) {
 
 export type PdfDoc = pdfjs.PDFDocumentProxy;
 export type PdfPage = pdfjs.PDFPageProxy;
+export const TextLayer = pdfjs.TextLayer;
+export type TextLayer = pdfjs.TextLayer;
 
 async function outlineToToc(doc: PdfDoc, items: Awaited<ReturnType<PdfDoc["getOutline"]>> | null | undefined): Promise<TocItem[]> {
   const out: TocItem[] = [];
@@ -107,18 +110,24 @@ export async function pdfMetadata(doc: PdfDoc): Promise<ExtractedMetadata> {
   };
 }
 
+export type PdfTextContent = { items: Array<PdfTextItem & Record<string, unknown>>; styles: Record<string, unknown>; lang: string | null };
+
 /**
  * PDF.js's getTextContent() uses `for await` over a ReadableStream, which
  * WKWebView does not support (TypeError: undefined is not a function), so
- * read the text stream with an explicit reader.
+ * read the text stream with an explicit reader. Extraction and the text layer
+ * both read through here so item indexes agree.
  */
-async function readTextItems(page: pdfjs.PDFPageProxy): Promise<string[]> {
+export async function readTextContent(page: PdfPage): Promise<PdfTextContent> {
   const reader = page.streamTextContent().getReader();
-  const out: string[] = [];
+  const out: PdfTextContent = { items: [], styles: {}, lang: null };
   for (;;) {
     const { value, done } = await reader.read();
     if (done) return out;
-    for (const it of (value as { items: Array<{ str?: string }> }).items) out.push(it.str ?? "");
+    const chunk = value as PdfTextContent;
+    out.lang ??= chunk.lang;
+    Object.assign(out.styles, chunk.styles);
+    for (const it of chunk.items) if (typeof it.str === "string") out.items.push({ ...it, str: it.str, hasEOL: !!it.hasEOL });
   }
 }
 
@@ -136,7 +145,7 @@ export async function pdfText(id: number, length: number, numPages: number, sign
       for (let i = first; i < Math.min(numPages, first + PAGES_PER_DOCUMENT); i++) {
         signal?.throwIfAborted();
         const page = await doc.getPage(i + 1);
-        segments.push({ order: i, label: null, text: (await readTextItems(page)).join(" ") });
+        segments.push({ order: i, label: null, ...pageSegment((await readTextContent(page)).items) });
         page.cleanup();
       }
     } finally {

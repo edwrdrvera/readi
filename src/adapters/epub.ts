@@ -1,8 +1,9 @@
 import { makeBook, type FoliateBook, type FoliateTocItem } from "foliate-js/view.js";
 import { bookUrl, type ExtractedMetadata, type TextSegment, type TocItem } from "../lib/api";
+import { buildSegment, epubTextNodes, epubUnits } from "../lib/textmap";
 import { HTTP_FILE_CHANGED, reportFileChanged } from "../lib/fileChanged";
 
-export const EPUB_EXTRACTOR_VERSION = 1;
+export const EPUB_EXTRACTOR_VERSION = 2;
 
 export async function loadEpub(id: number, signal?: AbortSignal): Promise<FoliateBook> {
   const res = await fetch(bookUrl(id), { signal });
@@ -70,8 +71,8 @@ export async function epubText(book: FoliateBook, signal?: AbortSignal): Promise
   for (const [order, section] of book.sections.entries()) {
     signal?.throwIfAborted();
     const doc = await section.createDocument();
-    const text = doc.body?.textContent ?? "";
-    segments.push({ order, label: doc.title || null, text });
+    const { text, mapping } = buildSegment(epubUnits(epubTextNodes(doc)));
+    segments.push({ order, label: doc.title || null, text, mapping });
     await yieldToUi();
   }
   return segments;

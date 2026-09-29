@@ -2,7 +2,8 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import "foliate-js/view.js";
 import type { View, RelocateDetail } from "foliate-js/view.js";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { BookDetail, Locator } from "../lib/api";
+import { Overlayer } from "foliate-js/overlayer.js";
+import type { Annotation, AnchorState, BookDetail, HighlightColor, Locator } from "../lib/api";
 import { loadEpub } from "../adapters/epub";
 import { handleKeydown } from "../lib/commands";
 import { backHistory } from "../lib/history";
@@ -10,7 +11,20 @@ import { THEME_COLORS, type Prefs, type Theme } from "../lib/prefs";
 import { useApp } from "../lib/store";
 import { useResolvedTheme } from "../lib/theme";
 import { readerActivity } from "./activity";
-import { setActiveReader, type RestoreQuality } from "./handle";
+import {
+  boundQuote,
+  collapse,
+  contextAround,
+  findQuote,
+  offsetOf,
+  offsetsOfRange,
+  quoteMatches,
+  rangeFromOffsets,
+  rangeFromPoints,
+  sectionText,
+  type SectionText,
+} from "./epubAnchors";
+import { setActiveReader, type ReaderHandle, type RestoreQuality, type SelectionInfo } from "./handle";
 import { useSaver } from "./useSaver";
 
 const NOT_CODE = ":not(pre, code, kbd, samp, tt, pre *, code *, kbd *, samp *, math, math *, svg, svg *)";
@@ -53,7 +67,19 @@ function sectionFraction(view: View, d: RelocateDetail): number {
   return Math.min(1, Math.max(0, end > start ? (d.fraction - start) / (end - start) : 0));
 }
 
-const collapse = (s: string) => s.replace(/\s+/g, " ").trim();
+/** Translucent through the overlayer's default opacity, so text stays readable in every theme. */
+const HIGHLIGHT_FILL: Record<HighlightColor, string> = {
+  yellow: "#f5c400",
+  green: "#2fb344",
+  blue: "#3b82f6",
+  pink: "#ec4899",
+};
+const HIT_KEY = "readi-search-hit";
+export const ANNOTATION_CLICK_EVENT = "readi:annotation-click";
+
+type Resolved = { index: number; anchor: (doc: Document) => Range | null };
+type AnchorTarget = { index: number; anchor?: number | ((doc: Document) => Range | number | null) };
+type Contents = { doc: Document | null; index: number; overlayer?: Overlayer };
 
 function applyLayout(r: Renderer, prefs: Prefs) {
   const flow = prefs.reading_mode === "vertical" ? "scrolled" : "paginated";
@@ -111,7 +137,14 @@ export function EpubReader({ detail, prefs }: { detail: BookDetail; prefs: Prefs
     addEventListener("resize", relayout);
 
     const r = () => view.renderer;
-    const contents = () => r()?.getContents?.() ?? [];
+    const contents = () => (r()?.getContents?.() ?? []) as Contents[];
+    const goToTarget = (t: AnchorTarget) => (r().goTo as unknown as (t: AnchorTarget) => Promise<void>)(t);
+    const fv = view as unknown as View & {
+      addAnnotation(a: { value: string }): Promise<unknown>;
+      deleteAnnotation(a: { value: string }): Promise<unknown>;
+    };
+    const resolveCfi = (cfi: string) => view.resolveNavigation(cfi) as Resolved | undefined;
+    const clampSection = (i: number) => Math.min(Math.max(0, i), view.book.sections.length - 1);
     const docs = () => contents().map((c) => c.doc).filter((d): d is Document => !!d);
 
     view.addEventListener("relocate", (e) => {
@@ -164,6 +197,8 @@ export function EpubReader({ detail, prefs }: { detail: BookDetail; prefs: Prefs
       }
       overscroll += e.deltaY;
       clearTimeout(overscrollReset);
+      cancelAnimationFrame(selectionFrame);
+      selectionListeners.clear();
       overscrollReset = setTimeout(() => (overscroll = 0), 400);
       if (Math.abs(overscroll) < 150) return;
       const dir = Math.sign(overscroll);
@@ -193,6 +228,170 @@ export function EpubReader({ detail, prefs }: { detail: BookDetail; prefs: Prefs
       return "approximate";
     };
 
+
+    // Search hit mark: one at a time, cleared once the reader moves on.
+    let hitMark: Overlayer | null = null;
+    const clearHit = () => {
+      hitMark?.remove(HIT_KEY);
+      hitMark = null;
+    };
+
+    // Highlights drawn by foliate, keyed by the CFI of their (possibly recovered) range.
+    let drawn = new Map<string, { id: number; index: number; color: HighlightColor }>();
+    let resolvedById = new Map<number, { index: number; cfi: string }>();
+    let generation = 0;
+    const parsed = new Map<number, Promise<SectionText | null>>();
+    const parsedSection = (index: number) => {
+      let p = parsed.get(index);
+      if (!p) {
+        const section = view.book.sections[index];
+        p = section
+          ? section.createDocument().then(sectionText, () => null)
+          : Promise.resolve(null);
+        parsed.set(index, p);
+      }
+      return p;
+    };
+
+    const resolveHighlight = async (a: Annotation): Promise<{ index: number; cfi: string } | null> => {
+      if (a.anchor.type !== "epub_range") return null;
+      const { cfi, section_index: index } = a.anchor;
+      const st = await parsedSection(index);
+      if (!st || !a.quote) return null;
+      try {
+        const nav = resolveCfi(cfi);
+        const range = nav?.index === index ? nav.anchor(st.doc) : null;
+        const offs = range ? offsetsOfRange(st, range) : null;
+        if (offs && quoteMatches(st.text.slice(offs[0], offs[1]), a.quote)) return { index, cfi };
+      } catch {
+        // A CFI that no longer fits the document falls through to quote recovery.
+      }
+      const found = findQuote(st.text, a.quote, a.context);
+      if (typeof found === "string") return null;
+      const range = rangeFromOffsets(st, found.start, found.end);
+      return range ? { index, cfi: view.getCFI(index, range) } : null;
+    };
+
+    const drawSection = (index: number) => {
+      for (const [cfi, d] of drawn) if (d.index === index) void fv.addAnnotation({ value: cfi });
+    };
+    view.addEventListener("create-overlay", (e) => drawSection((e as CustomEvent<{ index: number }>).detail.index));
+    view.addEventListener("draw-annotation", (e) => {
+      const { draw, annotation } = (e as CustomEvent<{ draw: (f: unknown, o: unknown) => void; annotation: { value: string } }>).detail;
+      const d = drawn.get(annotation.value);
+      if (d) draw(Overlayer.highlight, { color: HIGHLIGHT_FILL[d.color] });
+    });
+    view.addEventListener("show-annotation", (e) => {
+      const d = drawn.get((e as CustomEvent<{ value: string }>).detail.value);
+      if (d) dispatchEvent(new CustomEvent(ANNOTATION_CLICK_EVENT, { detail: { id: d.id } }));
+    });
+
+    const setAnnotations = async (list: Annotation[]): Promise<Array<[number, AnchorState]>> => {
+      const gen = ++generation;
+      await ready;
+      const states: Array<[number, AnchorState]> = [];
+      const nextDrawn = new Map<string, { id: number; index: number; color: HighlightColor }>();
+      const nextResolved = new Map<number, { index: number; cfi: string }>();
+      for (const a of list) {
+        if (a.kind === "bookmark") {
+          const ok = a.anchor.type === "position" && a.anchor.locator.format === "epub" && !!view.book.sections[a.anchor.locator.section_index];
+          states.push([a.id, ok ? "resolved" : "unresolved"]);
+          continue;
+        }
+        const res = await resolveHighlight(a);
+        if (gen !== generation) return states;
+        states.push([a.id, res ? "resolved" : "unresolved"]);
+        if (!res) continue;
+        nextResolved.set(a.id, res);
+        nextDrawn.set(res.cfi, { id: a.id, index: res.index, color: a.color ?? "yellow" });
+      }
+      for (const cfi of drawn.keys()) if (!nextDrawn.has(cfi)) void fv.deleteAnnotation({ value: cfi });
+      drawn = nextDrawn;
+      resolvedById = nextResolved;
+      for (const c of contents()) drawSection(c.index);
+      return states;
+    };
+
+    const showHit: ReaderHandle["showHit"] = async (hit) => {
+      await ready;
+      backHistory.push(bookId, location);
+      clearHit();
+      let found: Range | null = null;
+      await goToTarget({
+        index: clampSection(hit.order),
+        anchor: (doc) => {
+          if (!hit.range || hit.order !== clampSection(hit.order)) return 0;
+          const st = sectionText(doc);
+          const s = offsetOf(st.mapping, hit.range.start);
+          const e = offsetOf(st.mapping, hit.range.end);
+          if (s === null || e === null || e <= s) return 0;
+          if (collapse(st.text.slice(s, e)).toLowerCase() !== collapse(hit.match_text).toLowerCase()) return 0;
+          found = rangeFromPoints(st, hit.range.start, hit.range.end);
+          return found ?? 0;
+        },
+      });
+      const c = contents().find((x) => x.index === hit.order);
+      if (!found || !c?.overlayer) return "approximate";
+      c.overlayer.add(HIT_KEY, found, Overlayer.outline, { color: "#f59e0b", width: 2, padding: 1 });
+      hitMark = c.overlayer;
+      return "exact";
+    };
+
+    const showAnnotation: ReaderHandle["showAnnotation"] = async (a) => {
+      await ready;
+      backHistory.push(bookId, location);
+      if (a.anchor.type === "position") return restore(a.anchor.locator);
+      if (a.anchor.type !== "epub_range") return "approximate";
+      const res = resolvedById.get(a.id) ?? (await resolveHighlight(a));
+      const nav = res ? resolveCfi(res.cfi) : undefined;
+      if (res && nav) {
+        await goToTarget({ index: nav.index, anchor: (doc) => {
+            try {
+              return nav.anchor(doc) ?? 0;
+            } catch {
+              return 0;
+            }
+          },
+        });
+        return "exact";
+      }
+      await goToTarget({ index: clampSection(a.anchor.section_index) });
+      return "approximate";
+    };
+
+    const selectionListeners = new Set<(s: SelectionInfo | null) => void>();
+    let lastSelection: SelectionInfo | null = null;
+    let selectionFrame = 0;
+    const emitSelection = (s: SelectionInfo | null) => {
+      if (s === null && lastSelection === null) return;
+      lastSelection = s;
+      selectionListeners.forEach((cb) => cb(s));
+    };
+    const readSelection = (doc: Document, index: number): SelectionInfo | null => {
+      const sel = doc.getSelection();
+      if (!sel || sel.isCollapsed || !sel.rangeCount) return null;
+      const range = sel.getRangeAt(0);
+      const st = sectionText(doc);
+      const offs = offsetsOfRange(st, range);
+      if (!offs || offs[1] <= offs[0]) return null;
+      const quote = boundQuote(st.text.slice(offs[0], offs[1]));
+      if (!quote) return null;
+      const b = range.getBoundingClientRect();
+      const frame = doc.defaultView?.frameElement?.getBoundingClientRect();
+      return {
+        anchor: { type: "epub_range", v: 1, cfi: view.getCFI(index, range), section_index: index },
+        quote,
+        context: contextAround(st.text, offs[0], offs[1]),
+        sort_key: index + (st.text.length ? offs[0] / st.text.length : 0),
+        rect: { x: b.x + (frame?.x ?? 0), y: b.y + (frame?.y ?? 0), width: b.width, height: b.height },
+      };
+    };
+    const onSelectionChange = (doc: Document, index: number) => {
+      if (!selectionListeners.size) return;
+      cancelAnimationFrame(selectionFrame);
+      selectionFrame = requestAnimationFrame(() => emitSelection(readSelection(doc, index)));
+    };
+
     setActiveReader({
       bookId,
       ready,
@@ -219,6 +418,26 @@ export function EpubReader({ detail, prefs }: { detail: BookDetail; prefs: Prefs
       isVisible: (a) => !!a && collapse(view.lastLocation?.range?.toString() ?? "").includes(a.slice(0, 16)),
       flush: () => saver.flush(),
       documents: docs,
+      showHit,
+      showAnnotation,
+      setAnnotations,
+      onSelection: (cb) => {
+        selectionListeners.add(cb);
+        return () => selectionListeners.delete(cb);
+      },
+      clearSelection: () => {
+        docs().forEach((d) => d.getSelection()?.removeAllRanges());
+        emitSelection(null);
+      },
+      bookmark: () => {
+        if (location?.format !== "epub") return null;
+        const quote = collapse(view.lastLocation?.range?.toString() ?? "").slice(0, 120) || null;
+        return {
+          anchor: { type: "position", locator: location },
+          quote,
+          sort_key: location.section_index + location.section_fraction,
+        };
+      },
     });
 
     (async () => {
@@ -227,10 +446,15 @@ export function EpubReader({ detail, prefs }: { detail: BookDetail; prefs: Prefs
       el.append(view);
       await view.open(book);
       const rr = r();
-      rr.addEventListener("relocate", (e) => (lastReason = (e as CustomEvent<{ reason: string | null }>).detail.reason));
+      rr.addEventListener("relocate", (e) => {
+        lastReason = (e as CustomEvent<{ reason: string | null }>).detail.reason;
+        if (lastReason === "page" || lastReason === "scroll" || lastReason === "snap") clearHit();
+      });
       rr.addEventListener("scroll", sampleScroll);
       rr.addEventListener("load", (e) => {
-        const doc = (e as CustomEvent<{ doc: Document }>).detail.doc;
+        const { doc, index } = (e as CustomEvent<{ doc: Document; index: number }>).detail;
+        emitSelection(null);
+        doc.addEventListener("selectionchange", () => onSelectionChange(doc, index));
         doc.addEventListener("keydown", handleKeydown);
         doc.addEventListener("pointermove", () => readerActivity.ping());
         doc.addEventListener("wheel", onWheel, { passive: true });

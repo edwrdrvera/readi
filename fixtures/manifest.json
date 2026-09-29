@@ -17,6 +17,10 @@
       "bytes": 150281,
       "sha256": "240f09c51dcb1cece634bc58246a4e5aa7b06dc5fd95e567ce168708edfc537f"
     },
+    "image.pdf": {
+      "bytes": 91824,
+      "sha256": "5b18f910b265b721e3bdfef1ad7cd01a6a8f9cc36a7d6c3fc454d3d61abc86f3"
+    },
     "large.pdf": {
       "bytes": 263044788,
       "sha256": "ab3270c8c9af4912b247ddf117260938ac82030dd16580eb6c5f23e977ef0736"

@@ -76,7 +76,7 @@ export function ExcludedBooksSettings() {
       ) : (
         <ul className="flex flex-col gap-2">
           {exclusions.map((e) => (
-            <li key={`${e.watched_folder_id}:${e.sha256}`} className="flex items-center gap-2 text-xs">
+            <li key={`${e.folder_path}:${e.sha256}`} className="flex items-center gap-2 text-xs">
               <div className="flex min-w-0 flex-1 flex-col">
                 <span className="truncate font-medium">{e.title}</span>
                 <span className="truncate text-muted-foreground">{e.folder_path}</span>

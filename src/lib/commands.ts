@@ -2,13 +2,15 @@ import type { Format } from "./api";
 import { backHistory } from "./history";
 import { pickAndImport } from "./importing";
 import { PDF_SCALE, resolvePrefs, stepFontSize, type PrefKey, type Prefs, type ThemePref } from "./prefs";
-import { useApp } from "./store";
+import { useApp, type SidebarTab } from "./store";
 import { activeReader, type ReaderHandle } from "../reader/handle";
 
 export interface CommandContext {
   screen: "library" | "reader";
   format: Format | null;
   bookId: number | null;
+  /** The book that book actions apply to: the open book in the reader, the focused card in the Library. */
+  targetBookId: number | null;
   /** The open book's reader, once it has registered. */
   reader: ReaderHandle | null;
   prefs: Prefs;
@@ -47,6 +49,7 @@ export function commandContext(): CommandContext {
     screen: s.screen.name,
     format: detail?.book.format ?? null,
     bookId: detail?.book.id ?? null,
+    targetBookId: detail?.book.id ?? (s.screen.name === "library" && s.books.some((b) => b.id === s.focusedBookId) ? s.focusedBookId : null),
     reader: detail && reader?.bookId === detail.book.id ? reader : null,
     prefs: resolvePrefs(s.defaults, s.overrides),
   };
@@ -82,9 +85,55 @@ const readingRegion = () => document.querySelector<HTMLElement>("[data-reading-r
 
 let sidebarOpener: HTMLElement | null = null;
 
-export function openSidebar(opener: Element | null = document.activeElement) {
-  sidebarOpener = opener instanceof HTMLElement ? opener : null;
-  useApp.getState().setSidebar({ open: true });
+export function openSidebar(opener: Element | null = document.activeElement, tab?: SidebarTab) {
+  const s = useApp.getState();
+  // Reopening from inside the sidebar keeps the original opener.
+  if (!s.sidebar.open || !(opener instanceof Element && opener.closest("[data-reader-sidebar]"))) {
+    sidebarOpener = opener instanceof HTMLElement ? opener : null;
+  }
+  s.setSidebar({ open: true, ...(tab ? { tab } : {}) });
+}
+
+export function openBookSearch(opener: Element | null = document.activeElement) {
+  openSidebar(opener, "search");
+  requestAnimationFrame(() => {
+    const input = document.querySelector<HTMLInputElement>('[data-testid="search-input"]');
+    input?.focus();
+    input?.select();
+  });
+}
+
+let librarySearchOpener: HTMLElement | null = null;
+
+export function openLibrarySearch(opener: Element | null = document.activeElement) {
+  librarySearchOpener = opener instanceof HTMLElement ? opener : null;
+  useApp.getState().setLibrarySearchOpen(true);
+}
+
+/** Focus target when library search closes without opening a book. */
+export function takeLibrarySearchOpener(): HTMLElement | null {
+  const target = librarySearchOpener?.isConnected ? librarySearchOpener : readingRegion();
+  librarySearchOpener = null;
+  return target;
+}
+
+/** Escape: the note editor, then the highlight popover, then an unpinned sidebar. */
+export function dismissForemost(): boolean {
+  const s = useApp.getState();
+  if (s.editingId !== null) {
+    s.setEditing(null);
+    return true;
+  }
+  if (s.selection) {
+    activeReader()?.clearSelection();
+    s.setSelection(null);
+    return true;
+  }
+  if (s.screen.name === "reader" && s.sidebar.open && !s.sidebar.pinned) {
+    closeSidebar();
+    return true;
+  }
+  return false;
 }
 
 export function closeSidebar() {
@@ -132,6 +181,27 @@ export const commands: Command[] = [
     shortcuts: [],
     when: (ctx) => ctx.screen === "reader",
     run: () => useApp.getState().closeBook(),
+  },
+  {
+    id: "search.book",
+    label: "Find in Book",
+    shortcuts: [{ key: "f", meta: true }],
+    when: (ctx) => ctx.screen === "reader",
+    run: () => openBookSearch(),
+  },
+  {
+    id: "search.library",
+    label: "Search Library",
+    shortcuts: [{ key: "f", meta: true, shift: true }],
+    when: () => true,
+    run: () => openLibrarySearch(),
+  },
+  {
+    id: "bookmark.add",
+    label: "Add Bookmark",
+    shortcuts: [{ key: "d", meta: true }],
+    when: inReader,
+    run: () => useApp.getState().addBookmark(),
   },
   {
     id: "sidebar.toggle",
@@ -184,8 +254,11 @@ export const commands: Command[] = [
     palette: false,
     shortcuts: [{ key: "Escape" }],
     // Popovers and sheets dismiss themselves and mark the event handled.
-    when: (ctx) => ctx.screen === "reader" && useApp.getState().sidebar.open && !useApp.getState().sidebar.pinned,
-    run: () => closeSidebar(),
+    when: (ctx) => {
+      const s = useApp.getState();
+      return ctx.screen === "reader" && (s.editingId !== null || s.selection !== null || (s.sidebar.open && !s.sidebar.pinned));
+    },
+    run: () => void dismissForemost(),
   },
 ];
 
@@ -209,17 +282,18 @@ export function paletteCommands(ctx: CommandContext): Command[] {
   const s = useApp.getState();
   const out: Command[] = [];
   const manual = s.collections.filter((c) => c.kind === "manual");
-  if (ctx.bookId !== null) {
-    const id = ctx.bookId;
+  if (ctx.targetBookId !== null) {
+    const id = ctx.targetBookId;
     const book = s.books.find((b) => b.id === id) ?? (s.screen.name === "reader" ? s.screen.detail.book : null);
-    if (book?.reading_state !== "finished") out.push(dynamic("book.finished", "Mark as Finished", () => s.setReadingState(id, "finished")));
-    if (book?.reading_state !== "unread") out.push(dynamic("book.unread", "Mark as Unread", () => s.setReadingState(id, "unread")));
+    const label = (action: string) => (ctx.screen === "library" && book ? `${action}: ${book.title}` : action);
+    if (book?.reading_state !== "finished") out.push(dynamic("book.finished", label("Mark as Finished"), () => s.setReadingState(id, "finished")));
+    if (book?.reading_state !== "unread") out.push(dynamic("book.unread", label("Mark as Unread"), () => s.setReadingState(id, "unread")));
     for (const c of manual) {
       const member = book?.collection_ids.includes(c.id) ?? false;
       out.push(
         member
-          ? dynamic(`collection.remove.${c.id}`, `Remove from ${c.name}`, () => s.setMembership(c.id, [id], false))
-          : dynamic(`collection.add.${c.id}`, `Add to ${c.name}`, () => s.setMembership(c.id, [id], true)),
+          ? dynamic(`collection.remove.${c.id}`, label(`Remove from ${c.name}`), () => s.setMembership(c.id, [id], false))
+          : dynamic(`collection.add.${c.id}`, label(`Add to ${c.name}`), () => s.setMembership(c.id, [id], true)),
       );
     }
   }

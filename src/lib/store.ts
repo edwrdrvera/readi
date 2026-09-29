@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import {
   api,
+  type Annotation,
+  type AnnotationPatch,
   type BookDetail,
   type BookSummary,
   type Collection,
@@ -8,6 +10,7 @@ import {
   type ImportJob,
   type LibraryView,
   type Location,
+  type HighlightColor,
   type ReadingState,
   type UiSettings,
   type WatchedFolder,
@@ -18,7 +21,9 @@ import { upsertJob } from "./jobs";
 import { DEFAULT_VIEW, matchesView } from "./libraryView";
 import { DEFAULT_PREFS, type Overrides, type PrefKey, type Prefs } from "./prefs";
 import type { SaveStatus } from "./progress";
-import { activeReader } from "../reader/handle";
+import { applyAnchorStates, byReadingOrder } from "./annotations";
+import { dropNote, flushNotes } from "./notes";
+import { activeReader, type SelectionInfo } from "../reader/handle";
 
 export const DEFAULT_UI_SETTINGS: UiSettings = { library: DEFAULT_VIEW, always_show_controls: false };
 
@@ -32,6 +37,8 @@ export type Confirmation =
 export type CollectionEditor = { mode: "create"; addBookIds: number[] } | { mode: "rename"; collectionId: number };
 
 const CANCELLED_NOTICE_MS = 4000;
+
+export type SidebarTab = "contents" | "annotations" | "search";
 
 type Screen = { name: "library" } | { name: "reader"; detail: BookDetail };
 
@@ -49,7 +56,16 @@ interface AppState {
   defaults: Prefs;
   /** Overrides of the open book; empty in the Library. */
   overrides: Overrides;
-  sidebar: { open: boolean; pinned: boolean };
+  sidebar: { open: boolean; pinned: boolean; tab: SidebarTab };
+  /** The open book's annotations in reading order. */
+  annotations: Annotation[];
+  /** The reader's current text selection, while the highlight popover is up. */
+  selection: SelectionInfo | null;
+  /** The annotation whose editor is open. */
+  editingId: number | null;
+  librarySearchOpen: boolean;
+  /** The open book's search query, kept while the sidebar closes for a jump. */
+  bookQuery: string;
   settingsOpen: boolean;
   aaOpen: boolean;
   position: ReaderPosition;
@@ -113,6 +129,19 @@ interface AppState {
   setSettingsOpen(open: boolean): void;
   setAaOpen(open: boolean): void;
   setPosition(p: ReaderPosition): void;
+  setSelection(s: SelectionInfo | null): void;
+  setEditing(id: number | null): void;
+  setLibrarySearchOpen(open: boolean): void;
+  setBookQuery(q: string): void;
+  loadAnnotations(bookId: number): Promise<void>;
+  /** Draws the open book's highlights and persists how each resolved. */
+  redrawHighlights(): Promise<void>;
+  /** Highlights the current selection; returns the new annotation. */
+  addHighlight(color: HighlightColor): Promise<Annotation | null>;
+  addBookmark(): Promise<void>;
+  /** Throws on failure so note editors can keep their draft. */
+  updateAnnotation(id: number, patch: AnnotationPatch): Promise<void>;
+  deleteAnnotation(id: number): Promise<void>;
 }
 
 const openBookId = (s: AppState) => (s.screen.name === "reader" ? s.screen.detail.book.id : null);
@@ -124,7 +153,12 @@ export const useApp = create<AppState>((set, get) => ({
   saveStatus: null,
   defaults: DEFAULT_PREFS,
   overrides: {},
-  sidebar: { open: false, pinned: false },
+  sidebar: { open: false, pinned: false, tab: "contents" },
+  annotations: [],
+  selection: null,
+  editingId: null,
+  librarySearchOpen: false,
+  bookQuery: "",
   settingsOpen: false,
   aaOpen: false,
   position: { tocHref: null, sectionIndex: null },
@@ -317,13 +351,13 @@ export const useApp = create<AppState>((set, get) => ({
     await get().mutate("Could not rescan", () => api.rescanWatchedFolders());
   },
   async restoreExclusion(e) {
-    await get().mutate("Could not restore the book", () => api.restoreExclusion(e.watched_folder_id, e.sha256));
+    await get().mutate("Could not restore the book", () => api.restoreExclusion(e.folder_path, e.sha256));
   },
   async openBook(id) {
     const known = get().books.find((b) => b.id === id);
     if (known?.available === false) return get().showBookInfo(id);
     try {
-      await activeReader()?.flush();
+      await Promise.all([activeReader()?.flush(), flushNotes()]);
       // Prefs load before the reader mounts so it lays out once, in the right mode.
       const [detail, prefs] = await Promise.all([api.openBook(id), api.getPrefs(id)]);
       if (detail.book.available === false) {
@@ -338,14 +372,27 @@ export const useApp = create<AppState>((set, get) => ({
         position: { tocHref: null, sectionIndex: null },
         aaOpen: false,
         focusedBookId: id,
+        annotations: [],
+        selection: null,
+        editingId: null,
+        bookQuery: "",
       });
+      void get().loadAnnotations(id);
     } catch (e) {
       get().notify(`Could not open book: ${e}`);
     }
   },
   async closeBook() {
-    await activeReader()?.flush();
-    set({ screen: { name: "library" }, overrides: {}, aaOpen: false, sidebar: { ...get().sidebar, open: false } });
+    await Promise.all([activeReader()?.flush(), flushNotes()]);
+    set({
+      screen: { name: "library" },
+      overrides: {},
+      aaOpen: false,
+      sidebar: { ...get().sidebar, open: false },
+      annotations: [],
+      selection: null,
+      editingId: null,
+    });
     void get().refreshLibrary();
   },
   notify(message) {
@@ -411,6 +458,100 @@ export const useApp = create<AppState>((set, get) => ({
   },
   setPosition(position) {
     set({ position });
+  },
+  setSelection(selection) {
+    set({ selection });
+  },
+  setEditing(editingId) {
+    set({ editingId });
+  },
+  setLibrarySearchOpen(librarySearchOpen) {
+    set({ librarySearchOpen });
+  },
+  setBookQuery(bookQuery) {
+    set({ bookQuery });
+  },
+  async loadAnnotations(bookId) {
+    try {
+      const list = await api.listAnnotations(bookId);
+      if (openBookId(get()) !== bookId) return;
+      set({ annotations: byReadingOrder(list) });
+      await get().redrawHighlights();
+    } catch (e) {
+      get().notify(`Could not load annotations: ${e}`);
+    }
+  },
+  async redrawHighlights() {
+    const id = openBookId(get());
+    const reader = activeReader();
+    if (id === null || reader?.bookId !== id) return;
+    let states;
+    try {
+      await reader.ready;
+      states = await reader.setAnnotations(get().annotations.filter((a) => a.kind === "highlight"));
+    } catch (e) {
+      return get().notify(`Could not draw highlights: ${e}`);
+    }
+    if (openBookId(get()) !== id || states.length === 0) return;
+    set({ annotations: applyAnchorStates(get().annotations, states) });
+    try {
+      await api.setAnchorStates(states);
+    } catch (e) {
+      console.warn("set_anchor_states failed", e);
+    }
+  },
+  async addHighlight(color) {
+    const sel = get().selection;
+    const id = openBookId(get());
+    if (!sel || id === null) return null;
+    try {
+      const a = await api.createAnnotation({
+        book_id: id,
+        kind: "highlight",
+        anchor: sel.anchor,
+        quote: sel.quote,
+        context: sel.context,
+        color,
+        note: null,
+        sort_key: sel.sort_key,
+      });
+      activeReader()?.clearSelection();
+      set({ selection: null, annotations: byReadingOrder([...get().annotations, a]) });
+      await get().redrawHighlights();
+      return a;
+    } catch (e) {
+      get().notify(`Could not add the highlight: ${e}`);
+      return null;
+    }
+  },
+  async addBookmark() {
+    const id = openBookId(get());
+    const reader = activeReader();
+    if (id === null || reader?.bookId !== id) return;
+    const at = reader.bookmark();
+    if (!at) return get().notify("Could not add a bookmark here");
+    try {
+      const a = await api.createAnnotation({ book_id: id, kind: "bookmark", anchor: at.anchor, quote: at.quote, context: null, color: null, note: null, sort_key: at.sort_key });
+      set({ annotations: byReadingOrder([...get().annotations, a]) });
+      get().notify("Bookmark added");
+    } catch (e) {
+      get().notify(`Could not add the bookmark: ${e}`);
+    }
+  },
+  async updateAnnotation(id, patch) {
+    const a = await api.updateAnnotation(id, patch);
+    set({ annotations: get().annotations.map((x) => (x.id === id ? a : x)) });
+    if (patch.color !== undefined) await get().redrawHighlights();
+  },
+  async deleteAnnotation(id) {
+    try {
+      await api.deleteAnnotation(id);
+    } catch (e) {
+      return get().notify(`Could not delete: ${e}`);
+    }
+    dropNote(id);
+    set({ annotations: get().annotations.filter((a) => a.id !== id), editingId: get().editingId === id ? null : get().editingId });
+    await get().redrawHighlights();
   },
 }));
 
