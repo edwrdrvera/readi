@@ -156,7 +156,29 @@ pub struct ImportResult {
     pub already_in_library: bool,
 }
 
+/// Metadata and contents produced by the JavaScript format adapters.
+/// Everything here is untrusted and bounded before it reaches SQLite.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ExtractedMetadata {
+    pub title: Option<String>,
+    pub authors: Vec<String>,
+    pub language: Option<String>,
+    pub toc: Vec<TocItem>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct TocItem {
+    pub label: String,
+    /// EPUB href or PDF zero-based page index, as text.
+    pub target: String,
+    #[serde(default)]
+    pub children: Vec<TocItem>,
+}
+
 pub const MAX_TITLE: usize = 1024;
+pub const MAX_AUTHORS: usize = 32;
+pub const MAX_TOC_ENTRIES: usize = 20_000;
+pub const MAX_TOC_DEPTH: usize = 16;
 
 /// Strips control characters and truncates on a char boundary.
 pub fn clean_text(s: &str, max: usize) -> String {
