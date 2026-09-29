@@ -208,6 +208,8 @@ struct SelfTestConfig {
     phase: String,
     fixtures: Vec<String>,
     sha256: serde_json::Value,
+    /// M3 phases: generated inputs and watch dirs, from READI_SELFTEST_M3.
+    m3: serde_json::Value,
 }
 
 #[tauri::command]
@@ -222,6 +224,7 @@ fn selftest_config() -> Option<SelfTestConfig> {
             .map(String::from)
             .collect(),
         sha256: std::env::var("READI_SELFTEST_SHA").ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default(),
+        m3: std::env::var("READI_SELFTEST_M3").ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default(),
     })
 }
 

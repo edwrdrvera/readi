@@ -184,7 +184,8 @@ export const api = {
   setBookPref: <K extends PrefKey>(bookId: number, key: K, value: Prefs[K] | null) =>
     invoke<void>("set_book_pref", { bookId, key, value }),
   resetBookPrefs: (bookId: number) => invoke<void>("reset_book_prefs", { bookId }),
-  selftestConfig: () => invoke<{ phase: string; fixtures: string[]; sha256: Record<string, string> } | null>("selftest_config"),
+  selftestConfig: () =>
+    invoke<{ phase: string; fixtures: string[]; sha256: Record<string, string>; m3: unknown } | null>("selftest_config"),
   selftestReport: (report: unknown) => invoke<void>("selftest_report", { report }),
   selftestLog: (line: string) => invoke<void>("selftest_log", { line }),
 };
