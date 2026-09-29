@@ -115,6 +115,27 @@ CREATE TABLE app_settings (
 );
 "#, r#"
 ALTER TABLE book_preferences ADD COLUMN pdf_effect TEXT;
+"#, r#"
+ALTER TABLE books ADD COLUMN cover_state TEXT NOT NULL DEFAULT 'pending' CHECK (cover_state IN ('pending','ready','none','failed'));
+ALTER TABLE watched_folders ADD COLUMN show_collection INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE watched_exclusions ADD COLUMN title TEXT NOT NULL DEFAULT '';
+ALTER TABLE watched_exclusions ADD COLUMN excluded_at INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX book_locations_book ON book_locations(book_id);
+CREATE INDEX book_locations_folder ON book_locations(watched_folder_id);
+CREATE UNIQUE INDEX collections_one_derived ON collections(watched_folder_id) WHERE kind = 'derived';
+CREATE TABLE import_jobs (
+  id INTEGER PRIMARY KEY,
+  source_path TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('queued','running','done','failed','cancelled')),
+  outcome TEXT CHECK (outcome IN ('imported','added_copy','already_in_library')),
+  book_id INTEGER REFERENCES books(id) ON DELETE SET NULL,
+  error TEXT,
+  bytes_done INTEGER NOT NULL DEFAULT 0,
+  bytes_total INTEGER,
+  created_at INTEGER NOT NULL,
+  started_at INTEGER,
+  finished_at INTEGER
+);
 "#];
 
 pub fn now() -> i64 {
@@ -175,10 +196,23 @@ fn summary_from_row(r: &rusqlite::Row) -> rusqlite::Result<BookSummary> {
         file_size: r.get::<_, i64>("file_size")? as u64,
         added_at: r.get("added_at")?,
         opened_at: r.get("opened_at")?,
+        available: r.get::<_, i64>("available")? != 0,
+        has_cover: r.get::<_, String>("cover_state")? == "ready",
+        collection_ids: r
+            .get::<_, Option<String>>("collection_ids")?
+            .map(|s| s.split(',').filter_map(|x| x.parse().ok()).collect())
+            .unwrap_or_default(),
     })
 }
 
-const SUMMARY_SELECT: &str = "SELECT b.*, j.state AS index_state FROM books b LEFT JOIN extraction_jobs j ON j.book_id = b.id";
+const SUMMARY_SELECT: &str = "SELECT b.*, j.state AS index_state,
+  EXISTS (SELECT 1 FROM book_locations l WHERE l.book_id = b.id AND l.availability = 'available') AS available,
+  (SELECT group_concat(id) FROM (
+     SELECT cb.collection_id AS id FROM collection_books cb WHERE cb.book_id = b.id
+     UNION
+     SELECT c.id FROM collections c JOIN book_locations l ON l.watched_folder_id = c.watched_folder_id
+     WHERE c.kind = 'derived' AND l.book_id = b.id)) AS collection_ids
+  FROM books b LEFT JOIN extraction_jobs j ON j.book_id = b.id";
 
 pub fn list_books(conn: &Connection) -> Result<Vec<BookSummary>, String> {
     let mut stmt = conn
@@ -202,6 +236,51 @@ pub fn find_by_hash(conn: &Connection, sha: &str) -> Result<Option<i64>, String>
         .map_err(|e| e.to_string())
 }
 
+/// Inserts a book record and queues its extraction. Callers add locations in
+/// the same transaction so no book is ever committed without one.
+pub fn insert_book(tx: &Connection, sha: &str, format: Format, fallback_title: &str, size: u64) -> Result<i64, String> {
+    let t = now();
+    tx.execute(
+        "INSERT INTO books (sha256, format, title, file_size, added_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![sha, format.as_str(), fallback_title, size as i64, t],
+    )
+    .map_err(|e| e.to_string())?;
+    let id = tx.last_insert_rowid();
+    tx.execute(
+        "INSERT INTO extraction_jobs (book_id, state, updated_at) VALUES (?1, 'queued', ?2)",
+        params![id, t],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(id)
+}
+
+/// Adds a location, or re-points an existing (kind, path) row at `book_id`.
+/// Re-pointing is how changed bytes at a watched path become a new version.
+pub fn upsert_location(
+    tx: &Connection,
+    book_id: i64,
+    kind: LocationKind,
+    path: &str,
+    folder_id: Option<i64>,
+    size: u64,
+    mtime: Option<i64>,
+) -> Result<i64, String> {
+    let kind = match kind {
+        LocationKind::Managed => "managed",
+        LocationKind::Watched => "watched",
+    };
+    tx.execute(
+        "INSERT INTO book_locations (book_id, kind, path, watched_folder_id, availability, observed_size, observed_mtime)
+         VALUES (?1, ?2, ?3, ?4, 'available', ?5, ?6)
+         ON CONFLICT(kind, path) DO UPDATE SET book_id = excluded.book_id, watched_folder_id = excluded.watched_folder_id,
+           availability = 'available', observed_size = excluded.observed_size, observed_mtime = excluded.observed_mtime",
+        params![book_id, kind, path, folder_id, size as i64, mtime],
+    )
+    .map_err(|e| e.to_string())?;
+    tx.query_row("SELECT id FROM book_locations WHERE kind = ?1 AND path = ?2", params![kind, path], |r| r.get(0))
+        .map_err(|e| e.to_string())
+}
+
 pub fn insert_managed_book(
     conn: &Connection,
     sha: &str,
@@ -211,23 +290,8 @@ pub fn insert_managed_book(
     rel_path: &str,
 ) -> Result<i64, String> {
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
-    let t = now();
-    tx.execute(
-        "INSERT INTO books (sha256, format, title, file_size, added_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![sha, format.as_str(), fallback_title, size as i64, t],
-    )
-    .map_err(|e| e.to_string())?;
-    let id = tx.last_insert_rowid();
-    tx.execute(
-        "INSERT INTO book_locations (book_id, kind, path, observed_size) VALUES (?1, 'managed', ?2, ?3)",
-        params![id, rel_path, size as i64],
-    )
-    .map_err(|e| e.to_string())?;
-    tx.execute(
-        "INSERT INTO extraction_jobs (book_id, state, updated_at) VALUES (?1, 'queued', ?2)",
-        params![id, t],
-    )
-    .map_err(|e| e.to_string())?;
+    let id = insert_book(&tx, sha, format, fallback_title, size)?;
+    upsert_location(&tx, id, LocationKind::Managed, rel_path, None, size, None)?;
     tx.commit().map_err(|e| e.to_string())?;
     Ok(id)
 }
