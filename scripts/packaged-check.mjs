@@ -4,7 +4,7 @@
 // Usage: node scripts/packaged-check.mjs [path/to/Readi.app]
 import { execFile, spawn, spawnSync } from 'node:child_process'
 import { createServer } from 'node:http'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { runM3 } from './packaged-check-m3.mjs'
 import { join, resolve } from 'node:path'
@@ -28,12 +28,14 @@ const phaseTimeout = Number(process.env.READI_PHASE_TIMEOUT ?? 600_000)
 const logTail = (report) => existsSync(`${report}.log`) ? readFileSync(`${report}.log`, 'utf8').split('\n').slice(-14).join('\n') : 'no log'
 const webkitPids = () => new Set(spawnSync('pgrep', ['-f', 'com.apple.WebKit'], { encoding: 'utf8' }).stdout.split('\n').filter(Boolean))
 
-/** Sum of `footprint` for the app and the WebKit processes started after `before`, in MB. */
-async function footprintMb(pid, before) {
+/** `footprint` for the app and the WebKit processes started after `before`: total MB, MB per process, and the raw report. */
+async function footprint(pid, before) {
   const pids = [String(pid), ...[...webkitPids()].filter(p => !before.has(p))]
   const out = await new Promise(r => execFile('footprint', pids.flatMap(p => ['-p', p]), { encoding: 'utf8' }, (_e, stdout) => r(stdout ?? '')))
   const unit = { KB: 1 / 1024, MB: 1, GB: 1024 }
-  return [...out.matchAll(/\[\d+\]:.*Footprint: ([\d.]+) (KB|MB|GB)/g)].reduce((mb, m) => mb + Number(m[1]) * unit[m[2]], 0)
+  const byProcess = {}
+  for (const m of out.matchAll(/^(\S[^\n]*?) \[(\d+)\]:.*Footprint: ([\d.]+) (KB|MB|GB)/gm)) byProcess[`${m[1]} ${m[2]}`] = Math.round(Number(m[3]) * unit[m[4]])
+  return { mb: Object.values(byProcess).reduce((a, b) => a + b, 0), byProcess, raw: out }
 }
 
 /**
@@ -61,12 +63,13 @@ async function runPhase(phase, { dir = dataDir, m3, steps = {}, sampleMemory = f
   child.stderr.on('data', d => (stderr += d))
   const start = Date.now()
   const handled = new Set()
-  let peakMb = 0
+  let peak = { mb: 0 }
   let sampling = false
   const sampler = sampleMemory && setInterval(async () => {
     if (sampling) return
     sampling = true
-    peakMb = Math.max(peakMb, await footprintMb(child.pid, before).catch(() => 0))
+    const f = await footprint(child.pid, before).catch(() => ({ mb: 0 }))
+    if (f.mb > peak.mb) peak = { ...f, at: Date.now() }
     sampling = false
   }, 500)
   try {
@@ -92,7 +95,13 @@ async function runPhase(phase, { dir = dataDir, m3, steps = {}, sampleMemory = f
   child.kill('SIGKILL')
   await new Promise(r => child.once('exit', r))
   const result = JSON.parse(readFileSync(report, 'utf8'))
-  if (sampleMemory) result.peakFootprintMb = Math.round(peakMb)
+  if (sampleMemory) {
+    result.peakFootprintMb = Math.round(peak.mb)
+    result.peakFootprintByProcess = peak.byProcess
+    result.peakFootprintAt = peak.at
+    if (peak.raw) writeFileSync(join(dir, `${phase}.footprint.txt`), peak.raw)
+    if (process.env.READI_FOOTPRINT_OUT && peak.raw) writeFileSync(process.env.READI_FOOTPRINT_OUT, `peak at ${peak.at}\n${peak.raw}\n--- step log\n${readFileSync(`${report}.log`, 'utf8')}`)
+  }
   return result
 }
 
@@ -185,6 +194,7 @@ try {
     const wo = restore.warmOpen
     measured.warmOpen = { epub: { p95: wo.epub.p95, max: wo.epub.max }, pdf: { p95: wo.pdf.p95, max: wo.pdf.max } }
     measured.peakExtractionFootprintMb = first.peakFootprintMb
+    measured.peakFootprintByProcess = first.peakFootprintByProcess
     check('warm open typical.epub x20: p95 < 1000 ms', wo.epub.p95 < 1000, wo.epub)
     check('warm open text.pdf x20: p95 < 1000 ms', wo.pdf.p95 < 1000, wo.pdf)
   }
