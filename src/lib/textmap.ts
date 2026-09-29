@@ -52,11 +52,18 @@ function blockOf(node: Node): Node | null {
   return null;
 }
 
-/** Every text node under the section body, in document order. Units for EPUB extraction and resolution. */
+const NOT_TEXT = new Set(["script", "style", "template"]);
+
+/**
+ * Every text node under the section body in document order, except script and
+ * style source. Units for EPUB extraction and resolution.
+ */
 export function epubTextNodes(doc: Document): Text[] {
   const body = doc.body;
   if (!body) return [];
-  const walker = doc.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+  const walker = doc.createTreeWalker(body, NodeFilter.SHOW_TEXT, {
+    acceptNode: (n) => (NOT_TEXT.has((n.parentNode as Element | null)?.localName ?? "") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+  });
   const out: Text[] = [];
   for (let n = walker.nextNode(); n; n = walker.nextNode()) out.push(n as Text);
   return out;
