@@ -25,4 +25,4 @@ cd src-tauri && cargo test
 pnpm fixtures && node scripts/packaged-check.mjs
 ```
 
-Current status, decisions, and open issues are in [docs/M1.md](docs/M1.md).
+Current status, decisions, and open issues are in [docs/M1.md](docs/M1.md) and [docs/M2.md](docs/M2.md). The packaged check needs the display on and the screen unlocked.

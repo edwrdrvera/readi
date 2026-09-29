@@ -66,6 +66,7 @@ export function loadPdf(id: number, length: number) {
 }
 
 export type PdfDoc = pdfjs.PDFDocumentProxy;
+export type PdfPage = pdfjs.PDFPageProxy;
 
 async function outlineToToc(doc: PdfDoc, items: Awaited<ReturnType<PdfDoc["getOutline"]>> | null | undefined): Promise<TocItem[]> {
   const out: TocItem[] = [];
