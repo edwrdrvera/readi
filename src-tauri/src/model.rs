@@ -39,3 +39,29 @@ impl Format {
     }
 }
 
+pub const MAX_TITLE: usize = 1024;
+
+/// Strips control characters and truncates on a char boundary.
+pub fn clean_text(s: &str, max: usize) -> String {
+    let cleaned: String = s
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    let trimmed = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut end = trimmed.len().min(max);
+    while !trimmed.is_char_boundary(end) {
+        end -= 1;
+    }
+    trimmed[..end].to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clean_text_strips_controls_and_truncates_on_boundary() {
+        assert_eq!(clean_text("a\u{0}b\n  c", 100), "a b c");
+        assert_eq!(clean_text("ééé", 3), "é");
+    }
+}
