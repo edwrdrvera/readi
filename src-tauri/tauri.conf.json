@@ -26,7 +26,7 @@
         "default-src": "'self'",
         "script-src": "'self' 'wasm-unsafe-eval'",
         "style-src": "'self' 'unsafe-inline' blob:",
-        "img-src": "'self' blob: data:",
+        "img-src": "'self' blob: data: book:",
         "font-src": "'self' blob: data:",
         "media-src": "'self' blob:",
         "connect-src": "'self' ipc: http://ipc.localhost book: blob:",
@@ -37,12 +37,17 @@
         "base-uri": "'none'",
         "form-action": "'none'"
       },
-      "dangerousDisableAssetCspModification": ["style-src"]
+      "dangerousDisableAssetCspModification": [
+        "style-src"
+      ]
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg"],
+    "targets": [
+      "app",
+      "dmg"
+    ],
     "macOS": {
       "minimumSystemVersion": "13.0"
     },
@@ -52,6 +57,30 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
+    ],
+    "fileAssociations": [
+      {
+        "ext": [
+          "epub"
+        ],
+        "name": "EPUB Book",
+        "role": "Viewer",
+        "mimeType": "application/epub+zip",
+        "contentTypes": [
+          "org.idpf.epub-container"
+        ]
+      },
+      {
+        "ext": [
+          "pdf"
+        ],
+        "name": "PDF Document",
+        "role": "Viewer",
+        "mimeType": "application/pdf",
+        "contentTypes": [
+          "com.adobe.pdf"
+        ]
+      }
     ]
   }
 }

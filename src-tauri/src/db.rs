@@ -115,6 +115,27 @@ CREATE TABLE app_settings (
 );
 "#, r#"
 ALTER TABLE book_preferences ADD COLUMN pdf_effect TEXT;
+"#, r#"
+ALTER TABLE books ADD COLUMN cover_state TEXT NOT NULL DEFAULT 'pending' CHECK (cover_state IN ('pending','ready','none','failed'));
+ALTER TABLE watched_folders ADD COLUMN show_collection INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE watched_exclusions ADD COLUMN title TEXT NOT NULL DEFAULT '';
+ALTER TABLE watched_exclusions ADD COLUMN excluded_at INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX book_locations_book ON book_locations(book_id);
+CREATE INDEX book_locations_folder ON book_locations(watched_folder_id);
+CREATE UNIQUE INDEX collections_one_derived ON collections(watched_folder_id) WHERE kind = 'derived';
+CREATE TABLE import_jobs (
+  id INTEGER PRIMARY KEY,
+  source_path TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('queued','running','done','failed','cancelled')),
+  outcome TEXT CHECK (outcome IN ('imported','added_copy','already_in_library')),
+  book_id INTEGER REFERENCES books(id) ON DELETE SET NULL,
+  error TEXT,
+  bytes_done INTEGER NOT NULL DEFAULT 0,
+  bytes_total INTEGER,
+  created_at INTEGER NOT NULL,
+  started_at INTEGER,
+  finished_at INTEGER
+);
 "#];
 
 pub fn now() -> i64 {
@@ -175,10 +196,23 @@ fn summary_from_row(r: &rusqlite::Row) -> rusqlite::Result<BookSummary> {
         file_size: r.get::<_, i64>("file_size")? as u64,
         added_at: r.get("added_at")?,
         opened_at: r.get("opened_at")?,
+        available: r.get::<_, i64>("available")? != 0,
+        has_cover: r.get::<_, String>("cover_state")? == "ready",
+        collection_ids: r
+            .get::<_, Option<String>>("collection_ids")?
+            .map(|s| s.split(',').filter_map(|x| x.parse().ok()).collect())
+            .unwrap_or_default(),
     })
 }
 
-const SUMMARY_SELECT: &str = "SELECT b.*, j.state AS index_state FROM books b LEFT JOIN extraction_jobs j ON j.book_id = b.id";
+const SUMMARY_SELECT: &str = "SELECT b.*, j.state AS index_state,
+  EXISTS (SELECT 1 FROM book_locations l WHERE l.book_id = b.id AND l.availability = 'available') AS available,
+  (SELECT group_concat(id) FROM (
+     SELECT cb.collection_id AS id FROM collection_books cb WHERE cb.book_id = b.id
+     UNION
+     SELECT c.id FROM collections c JOIN book_locations l ON l.watched_folder_id = c.watched_folder_id
+     WHERE c.kind = 'derived' AND l.book_id = b.id)) AS collection_ids
+  FROM books b LEFT JOIN extraction_jobs j ON j.book_id = b.id";
 
 pub fn list_books(conn: &Connection) -> Result<Vec<BookSummary>, String> {
     let mut stmt = conn
@@ -202,15 +236,9 @@ pub fn find_by_hash(conn: &Connection, sha: &str) -> Result<Option<i64>, String>
         .map_err(|e| e.to_string())
 }
 
-pub fn insert_managed_book(
-    conn: &Connection,
-    sha: &str,
-    format: Format,
-    fallback_title: &str,
-    size: u64,
-    rel_path: &str,
-) -> Result<i64, String> {
-    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+/// Inserts a book record and queues its extraction. Callers add locations in
+/// the same transaction so no book is ever committed without one.
+pub fn insert_book(tx: &Connection, sha: &str, format: Format, fallback_title: &str, size: u64) -> Result<i64, String> {
     let t = now();
     tx.execute(
         "INSERT INTO books (sha256, format, title, file_size, added_at) VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -219,31 +247,273 @@ pub fn insert_managed_book(
     .map_err(|e| e.to_string())?;
     let id = tx.last_insert_rowid();
     tx.execute(
-        "INSERT INTO book_locations (book_id, kind, path, observed_size) VALUES (?1, 'managed', ?2, ?3)",
-        params![id, rel_path, size as i64],
-    )
-    .map_err(|e| e.to_string())?;
-    tx.execute(
         "INSERT INTO extraction_jobs (book_id, state, updated_at) VALUES (?1, 'queued', ?2)",
         params![id, t],
     )
     .map_err(|e| e.to_string())?;
-    tx.commit().map_err(|e| e.to_string())?;
     Ok(id)
 }
 
-/// Returns (kind, path) for the first available location.
-pub fn book_location(conn: &Connection, id: i64) -> Result<Option<(String, String, Format)>, String> {
+/// Adds a location, or re-points an existing (kind, path) row at `book_id`.
+/// Re-pointing is how changed bytes at a watched path become a new version.
+pub fn upsert_location(
+    tx: &Connection,
+    book_id: i64,
+    kind: LocationKind,
+    path: &str,
+    folder_id: Option<i64>,
+    size: u64,
+    mtime: Option<i64>,
+) -> Result<i64, String> {
+    let kind = kind.as_str();
+    tx.execute(
+        "INSERT INTO book_locations (book_id, kind, path, watched_folder_id, availability, observed_size, observed_mtime)
+         VALUES (?1, ?2, ?3, ?4, 'available', ?5, ?6)
+         ON CONFLICT(kind, path) DO UPDATE SET book_id = excluded.book_id, watched_folder_id = excluded.watched_folder_id,
+           availability = 'available', observed_size = excluded.observed_size, observed_mtime = excluded.observed_mtime",
+        params![book_id, kind, path, folder_id, size as i64, mtime],
+    )
+    .map_err(|e| e.to_string())?;
+    tx.query_row("SELECT id FROM book_locations WHERE kind = ?1 AND path = ?2", params![kind, path], |r| r.get(0))
+        .map_err(|e| e.to_string())
+}
+
+pub struct ServedLocation {
+    pub kind: LocationKind,
+    pub path: String,
+    pub format: Format,
+    pub observed_size: Option<i64>,
+    pub observed_mtime: Option<i64>,
+}
+
+/// The first available location, with the stat recorded when it was verified.
+pub fn book_location(conn: &Connection, id: i64) -> Result<Option<ServedLocation>, String> {
     conn.query_row(
-        "SELECT l.kind, l.path, b.format FROM book_locations l JOIN books b ON b.id = l.book_id
+        "SELECT l.kind, l.path, b.format, l.observed_size, l.observed_mtime FROM book_locations l JOIN books b ON b.id = l.book_id
          WHERE l.book_id = ?1 AND l.availability = 'available' ORDER BY l.id LIMIT 1",
         [id],
         |r| {
+            let kind: String = r.get(0)?;
             let f: String = r.get(2)?;
-            Ok((r.get(0)?, r.get(1)?, Format::parse(&f).unwrap_or(Format::Epub)))
+            Ok(ServedLocation {
+                kind: LocationKind::parse(&kind),
+                path: r.get(1)?,
+                format: Format::parse(&f).unwrap_or(Format::Epub),
+                observed_size: r.get(3)?,
+                observed_mtime: r.get(4)?,
+            })
         },
     )
     .optional()
+    .map_err(|e| e.to_string())
+}
+
+/// Locations with stored paths; managed paths are relative to the library root.
+pub fn locations(conn: &Connection, id: i64) -> Result<Vec<Location>, String> {
+    let mut stmt = conn
+        .prepare("SELECT id, kind, path, watched_folder_id, availability FROM book_locations WHERE book_id = ?1 ORDER BY id")
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([id], |r| {
+            let kind: String = r.get(1)?;
+            let availability: String = r.get(4)?;
+            Ok(Location {
+                id: r.get(0)?,
+                kind: LocationKind::parse(&kind),
+                path: r.get(2)?,
+                watched_folder_id: r.get(3)?,
+                availability: Availability::parse(&availability),
+            })
+        })
+        .map_err(|e| e.to_string())?;
+    rows.collect::<Result<_, _>>().map_err(|e| e.to_string())
+}
+
+pub fn has_managed_location(conn: &Connection, id: i64) -> Result<bool, String> {
+    conn.query_row("SELECT EXISTS (SELECT 1 FROM book_locations WHERE book_id = ?1 AND kind = 'managed')", [id], |r| r.get(0))
+        .map_err(|e| e.to_string())
+}
+
+pub fn managed_paths_of(conn: &Connection, id: i64) -> Result<Vec<String>, String> {
+    let mut stmt = conn
+        .prepare("SELECT path FROM book_locations WHERE book_id = ?1 AND kind = 'managed'")
+        .map_err(|e| e.to_string())?;
+    let rows = stmt.query_map([id], |r| r.get(0)).map_err(|e| e.to_string())?;
+    rows.collect::<Result<_, _>>().map_err(|e| e.to_string())
+}
+
+pub fn delete_location(conn: &Connection, location_id: i64) -> Result<(), String> {
+    conn.execute("DELETE FROM book_locations WHERE id = ?1", [location_id])
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+/// Drops the book's other watched locations that are no longer readable, so
+/// a relinked book does not keep its stale path.
+pub fn delete_unavailable_watched(tx: &Connection, id: i64, keep: i64) -> Result<(), String> {
+    tx.execute(
+        "DELETE FROM book_locations WHERE book_id = ?1 AND id != ?2 AND kind = 'watched' AND availability != 'available'",
+        params![id, keep],
+    )
+    .map(|_| ())
+    .map_err(|e| e.to_string())
+}
+
+/// Excludes the book's hash from every watched folder it was found in, then
+/// deletes the book; cascades remove its locations and reading data.
+pub fn delete_book_with_exclusions(tx: &Connection, id: i64) -> Result<(), String> {
+    tx.execute(
+        "INSERT INTO watched_exclusions (watched_folder_id, sha256, title, excluded_at)
+         SELECT DISTINCT l.watched_folder_id, b.sha256, b.title, ?2 FROM book_locations l JOIN books b ON b.id = l.book_id
+         WHERE l.book_id = ?1 AND l.kind = 'watched' AND l.watched_folder_id IS NOT NULL
+         ON CONFLICT DO NOTHING",
+        params![id, now()],
+    )
+    .map_err(|e| e.to_string())?;
+    match tx.execute("DELETE FROM books WHERE id = ?1", [id]).map_err(|e| e.to_string())? {
+        0 => Err("Book not found".into()),
+        _ => Ok(()),
+    }
+}
+
+pub fn watched_folder_paths(conn: &Connection) -> Result<Vec<(i64, String)>, String> {
+    let mut stmt = conn.prepare("SELECT id, path FROM watched_folders").map_err(|e| e.to_string())?;
+    let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?))).map_err(|e| e.to_string())?;
+    rows.collect::<Result<_, _>>().map_err(|e| e.to_string())
+}
+
+pub fn set_reading_state(conn: &Connection, id: i64, state: ReadingState) -> Result<(), String> {
+    match conn
+        .execute("UPDATE books SET reading_state = ?2 WHERE id = ?1", params![id, state.as_str()])
+        .map_err(|e| e.to_string())?
+    {
+        0 => Err("Book not found".into()),
+        _ => Ok(()),
+    }
+}
+
+/// The next book that needs a cover and has a readable file.
+pub fn claim_cover(conn: &Connection) -> Result<Option<i64>, String> {
+    conn.query_row(
+        "SELECT b.id FROM books b WHERE b.cover_state = 'pending'
+         AND EXISTS (SELECT 1 FROM book_locations l WHERE l.book_id = b.id AND l.availability = 'available')
+         ORDER BY b.id LIMIT 1",
+        [],
+        |r| r.get(0),
+    )
+    .optional()
+    .map_err(|e| e.to_string())
+}
+
+pub fn set_cover_state(conn: &Connection, id: i64, state: &str) -> Result<(), String> {
+    conn.execute("UPDATE books SET cover_state = ?2 WHERE id = ?1", params![id, state])
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+pub fn ready_cover_ids(conn: &Connection) -> Result<Vec<i64>, String> {
+    let mut stmt = conn.prepare("SELECT id FROM books WHERE cover_state = 'ready'").map_err(|e| e.to_string())?;
+    let rows = stmt.query_map([], |r| r.get(0)).map_err(|e| e.to_string())?;
+    rows.collect::<Result<_, _>>().map_err(|e| e.to_string())
+}
+
+pub const DERIVED_READ_ONLY: &str = "Folder collections follow their folder and can't be edited.";
+
+fn collection_name(name: &str) -> Result<String, String> {
+    let name = name.trim();
+    match name.chars().count() {
+        1..=200 => Ok(name.to_string()),
+        _ => Err("Collection names must be 1 to 200 characters.".into()),
+    }
+}
+
+fn require_manual(conn: &Connection, id: i64) -> Result<(), String> {
+    let kind: Option<String> = conn
+        .query_row("SELECT kind FROM collections WHERE id = ?1", [id], |r| r.get(0))
+        .optional()
+        .map_err(|e| e.to_string())?;
+    match kind.as_deref() {
+        None => Err("Collection not found".into()),
+        Some("manual") => Ok(()),
+        Some(_) => Err(DERIVED_READ_ONLY.into()),
+    }
+}
+
+pub fn list_collections(conn: &Connection) -> Result<Vec<Collection>, String> {
+    let mut stmt = conn
+        .prepare("SELECT id, name, kind, watched_folder_id FROM collections ORDER BY name COLLATE NOCASE, id")
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |r| {
+            let kind: String = r.get(2)?;
+            Ok(Collection {
+                id: r.get(0)?,
+                name: r.get(1)?,
+                kind: if kind == "derived" { CollectionKind::Derived } else { CollectionKind::Manual },
+                watched_folder_id: r.get(3)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+    rows.collect::<Result<_, _>>().map_err(|e| e.to_string())
+}
+
+pub fn create_collection(conn: &Connection, name: &str) -> Result<Collection, String> {
+    let name = collection_name(name)?;
+    conn.execute("INSERT INTO collections (name, kind) VALUES (?1, 'manual')", [&name])
+        .map_err(|e| e.to_string())?;
+    Ok(Collection { id: conn.last_insert_rowid(), name, kind: CollectionKind::Manual, watched_folder_id: None })
+}
+
+pub fn rename_collection(conn: &Connection, id: i64, name: &str) -> Result<(), String> {
+    let name = collection_name(name)?;
+    require_manual(conn, id)?;
+    conn.execute("UPDATE collections SET name = ?2 WHERE id = ?1", params![id, name])
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+/// Deletes a manual collection; its books stay in the library.
+pub fn delete_collection(conn: &Connection, id: i64) -> Result<(), String> {
+    require_manual(conn, id)?;
+    conn.execute("DELETE FROM collections WHERE id = ?1", [id])
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+pub fn set_collection_membership(conn: &Connection, id: i64, book_ids: &[i64], member: bool) -> Result<(), String> {
+    require_manual(conn, id)?;
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    let sql = if member {
+        "INSERT INTO collection_books (collection_id, book_id) SELECT ?1, id FROM books WHERE id = ?2 ON CONFLICT DO NOTHING"
+    } else {
+        "DELETE FROM collection_books WHERE collection_id = ?1 AND book_id = ?2"
+    };
+    for book in book_ids {
+        tx.execute(sql, params![id, book]).map_err(|e| e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())
+}
+
+const MAX_AUTHOR_FILTER: usize = 512;
+
+/// Missing or unreadable stored settings read as defaults.
+pub fn get_ui_settings(conn: &Connection) -> Result<UiSettings, String> {
+    let raw: Option<String> = conn
+        .query_row("SELECT value FROM app_settings WHERE key = 'ui'", [], |r| r.get(0))
+        .optional()
+        .map_err(|e| e.to_string())?;
+    Ok(raw.and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default())
+}
+
+pub fn set_ui_settings(conn: &Connection, settings: &UiSettings) -> Result<(), String> {
+    if settings.library.author.as_ref().is_some_and(|a| a.chars().count() > MAX_AUTHOR_FILTER) {
+        return Err("Author filter is too long".into());
+    }
+    conn.execute(
+        "INSERT INTO app_settings (key, value) VALUES ('ui', ?1) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        [serde_json::to_string(settings).unwrap()],
+    )
+    .map(|_| ())
     .map_err(|e| e.to_string())
 }
 
@@ -456,6 +726,13 @@ pub fn search_count(conn: &Connection, id: i64, word: &str) -> Result<i64, Strin
 }
 
 #[cfg(test)]
+pub fn insert_managed_book(conn: &Connection, sha: &str, format: Format, title: &str, size: u64, rel: &str) -> Result<i64, String> {
+    let id = insert_book(conn, sha, format, title, size)?;
+    upsert_location(conn, id, LocationKind::Managed, rel, None, size, None)?;
+    Ok(id)
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -544,5 +821,57 @@ mod tests {
         let conn = Connection::open(&path).unwrap();
         let n: i64 = conn.query_row("SELECT count(*) FROM sqlite_master WHERE name='books'", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn finished_survives_later_progress_saves() {
+        let (_d, conn) = fresh();
+        let id = insert_managed_book(&conn, "abc", Format::Pdf, "t", 10, "abc.pdf").unwrap();
+        set_reading_state(&conn, id, ReadingState::Finished).unwrap();
+        save_progress(&conn, id, &Locator::Pdf { v: 1, page_index: 0, x: 0.0, y: 0.0 }, 0.1).unwrap();
+        mark_opened(&conn, id).unwrap();
+        assert_eq!(get_book(&conn, id).unwrap().unwrap().reading_state, "finished");
+        assert!(set_reading_state(&conn, 99, ReadingState::Unread).is_err());
+    }
+
+    #[test]
+    fn manual_collections_edit_and_derived_are_read_only() {
+        let (_d, conn) = fresh();
+        let book = insert_managed_book(&conn, "abc", Format::Pdf, "t", 10, "abc.pdf").unwrap();
+        assert!(create_collection(&conn, "   ").is_err());
+        assert!(create_collection(&conn, &"x".repeat(201)).is_err());
+        let c = create_collection(&conn, "  Favorites ").unwrap();
+        assert_eq!(c.name, "Favorites");
+        set_collection_membership(&conn, c.id, &[book, 999], true).unwrap();
+        assert_eq!(get_book(&conn, book).unwrap().unwrap().collection_ids, vec![c.id]);
+        rename_collection(&conn, c.id, "Faves").unwrap();
+        delete_collection(&conn, c.id).unwrap();
+        assert!(get_book(&conn, book).unwrap().is_some(), "deleting a collection keeps its books");
+
+        conn.execute("INSERT INTO watched_folders (path) VALUES ('/w')", []).unwrap();
+        conn.execute("INSERT INTO collections (name, kind, watched_folder_id) VALUES ('w', 'derived', 1)", []).unwrap();
+        let derived = conn.last_insert_rowid();
+        assert_eq!(rename_collection(&conn, derived, "y").unwrap_err(), DERIVED_READ_ONLY);
+        assert_eq!(delete_collection(&conn, derived).unwrap_err(), DERIVED_READ_ONLY);
+        assert_eq!(set_collection_membership(&conn, derived, &[book], true).unwrap_err(), DERIVED_READ_ONLY);
+        assert_eq!(list_collections(&conn).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn ui_settings_round_trip_and_reject_bad_input() {
+        let (_d, conn) = fresh();
+        assert_eq!(get_ui_settings(&conn).unwrap(), UiSettings::default());
+        let mut s = UiSettings::default();
+        s.always_show_controls = true;
+        s.library.sort = SortKey::Title;
+        s.library.author = Some("Le Guin".into());
+        set_ui_settings(&conn, &s).unwrap();
+        assert_eq!(get_ui_settings(&conn).unwrap(), s);
+
+        assert!(serde_json::from_str::<UiSettings>(r#"{"library":{"sort":"title"},"extra":1}"#).is_err());
+        s.library.author = Some("a".repeat(513));
+        assert!(set_ui_settings(&conn, &s).is_err());
+        conn.execute("UPDATE app_settings SET value = '{bad' WHERE key = 'ui'", []).unwrap();
+        assert_eq!(get_ui_settings(&conn).unwrap(), UiSettings::default());
     }
 }

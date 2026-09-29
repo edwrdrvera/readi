@@ -148,12 +148,255 @@ pub struct BookSummary {
     pub file_size: u64,
     pub added_at: i64,
     pub opened_at: Option<i64>,
+    /// Derived: true when at least one location is readable. Never stored.
+    pub available: bool,
+    pub has_cover: bool,
+    /// Manual memberships plus derived watched-folder collections.
+    pub collection_ids: Vec<i64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReadingState {
+    Unread,
+    Reading,
+    Finished,
+}
+
+impl ReadingState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Unread => "unread",
+            Self::Reading => "reading",
+            Self::Finished => "finished",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LocationKind {
+    Managed,
+    Watched,
+}
+
+impl LocationKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Managed => "managed",
+            Self::Watched => "watched",
+        }
+    }
+
+    pub fn parse(s: &str) -> Self {
+        if s == "managed" { Self::Managed } else { Self::Watched }
+    }
+}
+
+/// Why a location can or cannot be read. A book is Missing only when no
+/// location is `Available`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Availability {
+    Available,
+    /// The watched folder itself is gone or unmounted.
+    FolderUnavailable,
+    /// The file or folder exists but cannot be read.
+    PermissionDenied,
+    /// Nothing is at the recorded path any more (moved out or deleted).
+    Moved,
+}
+
+impl Availability {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Available => "available",
+            Self::FolderUnavailable => "folder_unavailable",
+            Self::PermissionDenied => "permission_denied",
+            Self::Moved => "moved",
+        }
+    }
+
+    pub fn parse(s: &str) -> Self {
+        match s {
+            "available" => Self::Available,
+            "folder_unavailable" => Self::FolderUnavailable,
+            "permission_denied" => Self::PermissionDenied,
+            _ => Self::Moved,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct ImportResult {
-    pub book: BookSummary,
-    pub already_in_library: bool,
+pub struct Location {
+    pub id: i64,
+    pub kind: LocationKind,
+    /// Absolute path, resolved from the library root for managed copies.
+    pub path: String,
+    pub watched_folder_id: Option<i64>,
+    pub availability: Availability,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JobState {
+    Queued,
+    Running,
+    Done,
+    Failed,
+    Cancelled,
+}
+
+impl JobState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Queued => "queued",
+            Self::Running => "running",
+            Self::Done => "done",
+            Self::Failed => "failed",
+            Self::Cancelled => "cancelled",
+        }
+    }
+
+    pub fn parse(s: &str) -> Self {
+        match s {
+            "running" => Self::Running,
+            "done" => Self::Done,
+            "failed" => Self::Failed,
+            "cancelled" => Self::Cancelled,
+            _ => Self::Queued,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ImportOutcome {
+    /// A new book with a managed copy.
+    Imported,
+    /// The hash was known without a managed copy; one was added.
+    AddedCopy,
+    /// The hash already had a managed copy; the UI focuses it.
+    AlreadyInLibrary,
+}
+
+impl ImportOutcome {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Imported => "imported",
+            Self::AddedCopy => "added_copy",
+            Self::AlreadyInLibrary => "already_in_library",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "imported" => Some(Self::Imported),
+            "added_copy" => Some(Self::AddedCopy),
+            "already_in_library" => Some(Self::AlreadyInLibrary),
+            _ => None,
+        }
+    }
+}
+
+/// One managed import. Persisted so an interrupted import can be retried or
+/// reported on the next launch.
+#[derive(Debug, Clone, Serialize)]
+pub struct ImportJob {
+    pub id: i64,
+    pub source_path: String,
+    pub state: JobState,
+    pub outcome: Option<ImportOutcome>,
+    pub book_id: Option<i64>,
+    pub error: Option<String>,
+    pub bytes_done: u64,
+    pub bytes_total: Option<u64>,
+    pub created_at: i64,
+    pub started_at: Option<i64>,
+    pub finished_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CollectionKind {
+    Manual,
+    Derived,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Collection {
+    pub id: i64,
+    pub name: String,
+    pub kind: CollectionKind,
+    pub watched_folder_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FolderAccess {
+    Ok,
+    Unavailable,
+    PermissionDenied,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct WatchedFolder {
+    pub id: i64,
+    pub path: String,
+    pub access_state: FolderAccess,
+    pub last_scan_at: Option<i64>,
+    pub show_collection: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Exclusion {
+    pub watched_folder_id: i64,
+    pub folder_path: String,
+    pub sha256: String,
+    pub title: String,
+    pub excluded_at: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SortKey {
+    Recent,
+    Title,
+    Author,
+    Added,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AvailabilityFilter {
+    Available,
+    Missing,
+}
+
+/// Library filters and sort. Absent filters match everything.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LibraryView {
+    pub sort: SortKey,
+    pub format: Option<Format>,
+    pub author: Option<String>,
+    pub reading_state: Option<ReadingState>,
+    pub availability: Option<AvailabilityFilter>,
+    pub collection_id: Option<i64>,
+}
+
+impl Default for LibraryView {
+    fn default() -> Self {
+        Self { sort: SortKey::Recent, format: None, author: None, reading_state: None, availability: None, collection_id: None }
+    }
+}
+
+/// App-wide UI settings stored as one JSON value in `app_settings`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields, default)]
+pub struct UiSettings {
+    pub library: LibraryView,
+    pub always_show_controls: bool,
 }
 
 /// Metadata and contents produced by the JavaScript format adapters.

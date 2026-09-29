@@ -1,7 +1,8 @@
-//! `book://localhost/<book id>` serves registered book files only. Paths are
-//! never taken from the URL; the id is looked up in the database.
+//! `book://localhost/<book id>` serves registered book files and
+//! `book://localhost/<book id>/cover` their covers. Paths are never taken from
+//! the URL; the id is looked up in the database.
 use crate::db;
-use crate::library::Library;
+use crate::library::{cover_mime, Library};
 use crate::model::Format;
 use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
@@ -45,7 +46,9 @@ fn respond(status: StatusCode, body: Vec<u8>) -> Response<Vec<u8>> {
         .unwrap()
 }
 
-pub fn handle(lib: &Library, stats: &TransportStats, req: &Request<Vec<u8>>) -> Response<Vec<u8>> {
+/// `rescan` is called when a watched file no longer matches what the last
+/// scan verified, so the library catches up with the change.
+pub fn handle(lib: &Library, stats: &TransportStats, req: &Request<Vec<u8>>, rescan: &dyn Fn()) -> Response<Vec<u8>> {
     if req.method() == "OPTIONS" {
         return Response::builder()
             .status(StatusCode::NO_CONTENT)
@@ -56,18 +59,34 @@ pub fn handle(lib: &Library, stats: &TransportStats, req: &Request<Vec<u8>>) -> 
             .unwrap();
     }
     let path = req.uri().path().trim_start_matches('/');
+    if let Some(id) = path.strip_suffix("/cover").and_then(|id| id.parse::<i64>().ok()) {
+        return cover(lib, id);
+    }
     let Ok(id) = path.parse::<i64>() else {
         return respond(StatusCode::NOT_FOUND, vec![]);
     };
     let location = db::book_location(&lib.conn.lock().unwrap(), id);
-    let Ok(Some((kind, rel, format))) = location else {
+    let Ok(Some(loc)) = location else {
         return respond(StatusCode::NOT_FOUND, vec![]);
     };
-    let file_path = lib.resolve(&kind, &rel);
+    let format = loc.format;
+    let watched = loc.kind == crate::model::LocationKind::Watched;
+    let file_path = lib.resolve(loc.kind, &loc.path);
     let Ok(mut file) = std::fs::File::open(&file_path) else {
+        if watched {
+            rescan();
+        }
         return respond(StatusCode::GONE, vec![]);
     };
-    let len = file.metadata().map(|m| m.len()).unwrap_or(0);
+    let meta = file.metadata().ok();
+    let len = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+    if watched {
+        let mtime = meta.as_ref().map(crate::watch::mtime_ms);
+        if loc.observed_size != Some(len as i64) || loc.observed_mtime != mtime {
+            rescan();
+            return respond(StatusCode::CONFLICT, vec![]);
+        }
+    }
     let range = req.headers().get(header::RANGE).and_then(|v| v.to_str().ok());
 
     let (status, start, end) = match range {
@@ -100,16 +119,31 @@ pub fn handle(lib: &Library, stats: &TransportStats, req: &Request<Vec<u8>>) -> 
         .unwrap()
 }
 
+fn cover(lib: &Library, id: i64) -> Response<Vec<u8>> {
+    let Ok(bytes) = std::fs::read(lib.cover_path(id)) else {
+        return respond(StatusCode::NOT_FOUND, vec![]);
+    };
+    let Some(mime) = cover_mime(&bytes) else {
+        return respond(StatusCode::NOT_FOUND, vec![]);
+    };
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, mime)
+        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+        .body(bytes)
+        .unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn lib_with_pdf(bytes: &[u8]) -> (tempfile::TempDir, Library) {
+    fn lib_with_pdf(bytes: &[u8]) -> (tempfile::TempDir, std::sync::Arc<Library>) {
         let dir = tempfile::tempdir().unwrap();
-        let lib = Library::open(dir.path()).unwrap();
+        let lib = std::sync::Arc::new(Library::open(dir.path()).unwrap());
         let src = dir.path().join("x.pdf");
         std::fs::write(&src, bytes).unwrap();
-        lib.import(&src).unwrap();
+        crate::jobs::tests::import_now(&lib, &src);
         (dir, lib)
     }
 
@@ -118,7 +152,7 @@ mod tests {
         if let Some(r) = range {
             b = b.header("Range", r);
         }
-        handle(lib, &TransportStats::default(), &b.body(vec![]).unwrap())
+        handle(lib, &TransportStats::default(), &b.body(vec![]).unwrap(), &|| {})
     }
 
     #[test]
@@ -154,6 +188,17 @@ mod tests {
         ] {
             assert_eq!(get(&lib, uri, Some("bytes=0-3")).status(), StatusCode::NOT_FOUND, "{uri}");
         }
+    }
+
+    #[test]
+    fn serves_covers_with_sniffed_type() {
+        let (_d, lib) = lib_with_pdf(b"%PDF-1.4");
+        assert_eq!(get(&lib, "book://localhost/1/cover", None).status(), StatusCode::NOT_FOUND);
+        lib.submit_cover(1, Some(b"\x89PNG\r\n\x1a\nbody".to_vec())).unwrap();
+        let r = get(&lib, "book://localhost/1/cover", None);
+        assert_eq!(r.status(), StatusCode::OK);
+        assert_eq!(r.headers()["content-type"], "image/png");
+        assert_eq!(get(&lib, "book://localhost/../1/cover", None).status(), StatusCode::NOT_FOUND);
     }
 
     #[test]

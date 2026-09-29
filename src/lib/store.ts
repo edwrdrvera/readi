@@ -1,8 +1,37 @@
 import { create } from "zustand";
-import { api, type BookDetail, type BookSummary } from "./api";
+import {
+  api,
+  type BookDetail,
+  type BookSummary,
+  type Collection,
+  type Exclusion,
+  type ImportJob,
+  type LibraryView,
+  type Location,
+  type ReadingState,
+  type UiSettings,
+  type WatchedFolder,
+} from "./api";
+import { extraction } from "./extraction";
+import { onFileChanged } from "./fileChanged";
+import { upsertJob } from "./jobs";
+import { DEFAULT_VIEW, matchesView } from "./libraryView";
 import { DEFAULT_PREFS, type Overrides, type PrefKey, type Prefs } from "./prefs";
 import type { SaveStatus } from "./progress";
 import { activeReader } from "../reader/handle";
+
+export const DEFAULT_UI_SETTINGS: UiSettings = { library: DEFAULT_VIEW, always_show_controls: false };
+
+/** A destructive action waiting for explicit confirmation. */
+export type Confirmation =
+  | { kind: "remove-book"; bookId: number }
+  | { kind: "delete-copy"; bookId: number }
+  | { kind: "delete-collection"; collectionId: number }
+  | { kind: "remove-folder"; folderId: number };
+
+export type CollectionEditor = { mode: "create"; addBookIds: number[] } | { mode: "rename"; collectionId: number };
+
+const CANCELLED_NOTICE_MS = 4000;
 
 type Screen = { name: "library" } | { name: "reader"; detail: BookDetail };
 
@@ -24,7 +53,52 @@ interface AppState {
   settingsOpen: boolean;
   aaOpen: boolean;
   position: ReaderPosition;
+  jobs: Record<number, ImportJob>;
+  /** import_books calls not yet answered, shown as "Preparing import…". */
+  pendingImports: number;
+  collections: Collection[];
+  folders: WatchedFolder[];
+  exclusions: Exclusion[];
+  uiSettings: UiSettings;
+  focusedBookId: number | null;
+  /** Locations per book, loaded on demand and cleared when the library changes. */
+  locations: Record<number, Location[]>;
+  infoBookId: number | null;
+  confirmation: Confirmation | null;
+  collectionEditor: CollectionEditor | null;
+  paletteOpen: boolean;
   refreshBooks(): Promise<void>;
+  /** Books, collections, folders, and exclusions, after any backend-side change. */
+  refreshLibrary(): Promise<void>;
+  receiveJob(job: ImportJob): void;
+  loadJobs(): Promise<void>;
+  dismissJob(id: number): void;
+  cancelImport(id: number): Promise<void>;
+  setPendingImports(delta: number): void;
+  loadUiSettings(): Promise<void>;
+  setUiSettings(patch: Partial<UiSettings>): Promise<void>;
+  setView(patch: Partial<LibraryView>): Promise<void>;
+  /** Scrolls to and rings a book, resetting filters that hide it. */
+  focusBook(id: number): void;
+  loadLocations(id: number): Promise<Location[]>;
+  showBookInfo(id: number | null): void;
+  setConfirmation(c: Confirmation | null): void;
+  setCollectionEditor(e: CollectionEditor | null): void;
+  setPaletteOpen(open: boolean): void;
+  setReadingState(id: number, state: ReadingState): Promise<void>;
+  setMembership(collectionId: number, bookIds: number[], member: boolean): Promise<void>;
+  /** Returns the backend's error text when the file does not match. */
+  locateBook(id: number, path: string): Promise<string | null>;
+  createCollection(name: string, addBookIds: number[]): Promise<void>;
+  renameCollection(id: number, name: string): Promise<void>;
+  /** Carries out the pending confirmation. */
+  confirm(): Promise<void>;
+  addFolder(path: string): Promise<void>;
+  setFolderCollection(id: number, enabled: boolean): Promise<void>;
+  rescan(): Promise<void>;
+  restoreExclusion(e: Exclusion): Promise<void>;
+  /** Runs a library mutation, then refreshes; failures become a notice. */
+  mutate(label: string, fn: () => Promise<unknown>): Promise<boolean>;
   openBook(id: number): Promise<void>;
   /** Flushes the open reader's progress before leaving it. */
   closeBook(): Promise<void>;
@@ -54,14 +128,208 @@ export const useApp = create<AppState>((set, get) => ({
   settingsOpen: false,
   aaOpen: false,
   position: { tocHref: null, sectionIndex: null },
+  jobs: {},
+  pendingImports: 0,
+  collections: [],
+  folders: [],
+  exclusions: [],
+  uiSettings: DEFAULT_UI_SETTINGS,
+  focusedBookId: null,
+  locations: {},
+  infoBookId: null,
+  confirmation: null,
+  collectionEditor: null,
+  paletteOpen: false,
   async refreshBooks() {
     set({ books: await api.listBooks() });
   },
+  async refreshLibrary() {
+    try {
+      const [books, collections, folders, exclusions] = await Promise.all([
+        api.listBooks(),
+        api.listCollections(),
+        api.listWatchedFolders(),
+        api.listExclusions(),
+      ]);
+      set({ books, collections, folders, exclusions, locations: {} });
+    } catch (e) {
+      get().notify(`Could not load the library: ${e}`);
+    }
+  },
+  receiveJob(job) {
+    const prev = get().jobs[job.id];
+    const jobs = upsertJob(get().jobs, job);
+    if (jobs === get().jobs) return;
+    set({ jobs });
+    if (prev?.state === job.state) return;
+    if (job.state === "cancelled") setTimeout(() => get().dismissJob(job.id), CANCELLED_NOTICE_MS);
+    if (job.state !== "done") return;
+    extraction.kick();
+    void get()
+      .refreshLibrary()
+      .then(() => {
+        if (job.outcome !== "already_in_library" || job.book_id === null) return;
+        const book = get().books.find((b) => b.id === job.book_id);
+        get().focusBook(job.book_id);
+        get().notify(`“${book?.title ?? job.source_path.split("/").pop()}” is already in the library`);
+      });
+  },
+  async loadJobs() {
+    try {
+      (await api.listImportJobs()).forEach(get().receiveJob);
+    } catch (e) {
+      // Polled while imports run; events still deliver job updates.
+      console.warn("list_import_jobs failed", e);
+    }
+  },
+  dismissJob(id) {
+    const { [id]: _, ...jobs } = get().jobs;
+    set({ jobs });
+  },
+  async cancelImport(id) {
+    try {
+      await api.cancelImport(id);
+    } catch (e) {
+      get().notify(`Could not cancel: ${e}`);
+    }
+  },
+  setPendingImports(delta) {
+    set((s) => ({ pendingImports: Math.max(0, s.pendingImports + delta) }));
+  },
+  async loadUiSettings() {
+    try {
+      set({ uiSettings: await api.getUiSettings() });
+    } catch (e) {
+      get().notify(`Could not load library settings: ${e}`);
+    }
+  },
+  async setUiSettings(patch) {
+    const previous = get().uiSettings;
+    const uiSettings = { ...previous, ...patch };
+    set({ uiSettings });
+    try {
+      await api.setUiSettings(uiSettings);
+    } catch (e) {
+      set({ uiSettings: previous });
+      get().notify(`Could not save settings: ${e}`);
+    }
+  },
+  setView(patch) {
+    return get().setUiSettings({ library: { ...get().uiSettings.library, ...patch } });
+  },
+  focusBook(id) {
+    set({ focusedBookId: id });
+    const book = get().books.find((b) => b.id === id);
+    const view = get().uiSettings.library;
+    if (book && !matchesView(book, view)) {
+      void get().setView({ ...DEFAULT_VIEW, sort: view.sort });
+      get().notify(`Filters were cleared to show “${book.title}”`);
+    }
+  },
+  async loadLocations(id) {
+    const locations = await api.getLocations(id);
+    set((s) => ({ locations: { ...s.locations, [id]: locations } }));
+    return locations;
+  },
+  showBookInfo(infoBookId) {
+    set({ infoBookId });
+    if (infoBookId !== null) void get().loadLocations(infoBookId).catch((e) => get().notify(`Could not load locations: ${e}`));
+  },
+  setConfirmation(confirmation) {
+    set({ confirmation });
+    // The removal copy depends on where the book's files are.
+    if (confirmation?.kind === "remove-book" || confirmation?.kind === "delete-copy") void get().loadLocations(confirmation.bookId).catch(() => {});
+  },
+  setCollectionEditor(collectionEditor) {
+    set({ collectionEditor });
+  },
+  setPaletteOpen(paletteOpen) {
+    set({ paletteOpen });
+  },
+  async mutate(label, fn) {
+    try {
+      await fn();
+      return true;
+    } catch (e) {
+      get().notify(`${label}: ${e}`);
+      return false;
+    } finally {
+      await get().refreshLibrary();
+    }
+  },
+  async setReadingState(id, state) {
+    await get().mutate("Could not change reading state", () => api.setReadingState(id, state));
+    const s = get().screen;
+    const book = get().books.find((b) => b.id === id);
+    if (s.name === "reader" && s.detail.book.id === id && book) set({ screen: { name: "reader", detail: { ...s.detail, book } } });
+  },
+  async setMembership(collectionId, bookIds, member) {
+    await get().mutate("Could not change the collection", () => api.setCollectionMembership(collectionId, bookIds, member));
+  },
+  async locateBook(id, path) {
+    try {
+      await api.locateBook(id, path);
+    } catch (e) {
+      return String(e);
+    }
+    await get().refreshLibrary();
+    await get().loadLocations(id).catch(() => {});
+    return null;
+  },
+  async createCollection(name, addBookIds) {
+    await get().mutate("Could not create the collection", async () => {
+      const c = await api.createCollection(name);
+      if (addBookIds.length > 0) await api.setCollectionMembership(c.id, addBookIds, true);
+    });
+  },
+  async renameCollection(id, name) {
+    await get().mutate("Could not rename the collection", () => api.renameCollection(id, name));
+  },
+  async confirm() {
+    const c = get().confirmation;
+    set({ confirmation: null });
+    if (!c) return;
+    const { mutate } = get();
+    switch (c.kind) {
+      case "remove-book":
+        if (get().infoBookId === c.bookId) set({ infoBookId: null });
+        await mutate("Could not remove the book", () => api.removeBook(c.bookId));
+        return;
+      case "delete-copy":
+        await mutate("Could not delete the managed copy", () => api.removeManagedCopy(c.bookId));
+        return;
+      case "delete-collection":
+        if (get().uiSettings.library.collection_id === c.collectionId) void get().setView({ collection_id: null });
+        await mutate("Could not delete the collection", () => api.deleteCollection(c.collectionId));
+        return;
+      case "remove-folder":
+        await mutate("Could not remove the folder", () => api.removeWatchedFolder(c.folderId));
+        return;
+    }
+  },
+  async addFolder(path) {
+    await get().mutate("Could not add the folder", () => api.addWatchedFolder(path));
+  },
+  async setFolderCollection(id, enabled) {
+    await get().mutate("Could not change the folder", () => api.setFolderCollection(id, enabled));
+  },
+  async rescan() {
+    await get().mutate("Could not rescan", () => api.rescanWatchedFolders());
+  },
+  async restoreExclusion(e) {
+    await get().mutate("Could not restore the book", () => api.restoreExclusion(e.watched_folder_id, e.sha256));
+  },
   async openBook(id) {
+    const known = get().books.find((b) => b.id === id);
+    if (known?.available === false) return get().showBookInfo(id);
     try {
       await activeReader()?.flush();
       // Prefs load before the reader mounts so it lays out once, in the right mode.
       const [detail, prefs] = await Promise.all([api.openBook(id), api.getPrefs(id)]);
+      if (detail.book.available === false) {
+        set((s) => ({ locations: { ...s.locations, [id]: detail.locations } }));
+        return get().showBookInfo(id);
+      }
       set({
         screen: { name: "reader", detail },
         saveStatus: null,
@@ -69,6 +337,7 @@ export const useApp = create<AppState>((set, get) => ({
         overrides: prefs.overrides,
         position: { tocHref: null, sectionIndex: null },
         aaOpen: false,
+        focusedBookId: id,
       });
     } catch (e) {
       get().notify(`Could not open book: ${e}`);
@@ -77,7 +346,7 @@ export const useApp = create<AppState>((set, get) => ({
   async closeBook() {
     await activeReader()?.flush();
     set({ screen: { name: "library" }, overrides: {}, aaOpen: false, sidebar: { ...get().sidebar, open: false } });
-    void get().refreshBooks();
+    void get().refreshLibrary();
   },
   notify(message) {
     set((s) => ({ notices: [...s.notices.slice(-4), message] }));
@@ -144,3 +413,10 @@ export const useApp = create<AppState>((set, get) => ({
     set({ position });
   },
 }));
+
+onFileChanged((bookId) => {
+  const s = useApp.getState();
+  if (openBookId(s) !== bookId) return;
+  s.notify("This file changed on disk. Readi is checking it again.");
+  void s.closeBook();
+});

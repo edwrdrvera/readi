@@ -1,13 +1,14 @@
 import { api, type BookSummary } from "./api";
 import { epubMetadata, epubText, loadEpub, EPUB_EXTRACTOR_VERSION } from "../adapters/epub";
 import { loadPdf, pdfMetadata, pdfText, PDF_EXTRACTOR_VERSION } from "../adapters/pdf";
+import { makeCover } from "../adapters/cover";
 
 type Listener = () => void;
 
 /**
  * App-level extraction queue: JavaScript adapters parse, Rust persists.
  * It lives outside the reader so closing a book does not stop indexing.
- * One job runs at a time.
+ * One job runs at a time, and cover jobs drain before text extraction jobs.
  */
 class ExtractionQueue {
   private running = false;
@@ -31,8 +32,36 @@ class ExtractionQueue {
     });
   }
 
+  private async claimCover(): Promise<BookSummary | null> {
+    try {
+      return await api.claimCoverJob();
+    } catch (e) {
+      console.warn("claim_cover_job failed", e);
+      return null;
+    }
+  }
+
+  private async cover(book: BookSummary) {
+    try {
+      await api.submitCover(book.id, await makeCover(book));
+    } catch (e) {
+      console.warn("submit_cover failed", e);
+    }
+  }
+
   private async drain() {
+    // A cover whose submit failed may be handed out again; stop covers rather than loop.
+    const tried = new Set<number>();
+    let covers = true;
     for (;;) {
+      const cover = covers ? await this.claimCover() : null;
+      if (cover && tried.has(cover.id)) covers = false;
+      else if (cover) {
+        tried.add(cover.id);
+        await this.cover(cover);
+        this.emit();
+        continue;
+      }
       const book = await api.claimExtractionJob(this.firstClaim);
       this.firstClaim = false;
       if (!book) return;

@@ -16,6 +16,7 @@ declare module "foliate-js/view.js" {
     sections: FoliateSection[];
     dir?: string;
     splitTOCHref?(href: string): unknown;
+    getCover?(): Promise<Blob | null> | Blob | null;
     destroy?(): void;
   }
   export interface RelocateDetail {

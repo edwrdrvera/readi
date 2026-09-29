@@ -1,6 +1,7 @@
 import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.mjs?url";
 import { bookUrl, type ExtractedMetadata, type TextSegment, type TocItem } from "../lib/api";
+import { HTTP_FILE_CHANGED, reportFileChanged } from "../lib/fileChanged";
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -33,6 +34,7 @@ class BookRangeTransport extends pdfjs.PDFDataRangeTransport {
           headers: { Range: `bytes=${start}-${stop - 1}` },
           signal: this.controller.signal,
         });
+        if (res.status === HTTP_FILE_CHANGED) reportFileChanged(this.id);
         if (res.status !== 206) throw new Error(`range request failed: ${res.status}`);
         data.set(new Uint8Array(await res.arrayBuffer()), start - begin);
       }
