@@ -6,6 +6,12 @@ A local macOS reader for DRM-free EPUB and PDF files, built with Tauri 2, React,
 
 Prerequisites: Xcode Command Line Tools, Node 26, pnpm 12, and Rust stable.
 
+Rust comes from Homebrew's `rustup`, which does not put `cargo` on `PATH`. Add it before building:
+
+```bash
+export PATH=/opt/homebrew/opt/rustup/bin:$PATH
+```
+
 ```bash
 pnpm install
 pnpm tauri dev
