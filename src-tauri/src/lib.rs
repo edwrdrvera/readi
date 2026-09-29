@@ -1,6 +1,7 @@
 mod db;
 mod library;
 mod model;
+mod protocol;
 
 use library::Library;
 use model::*;
