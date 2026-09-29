@@ -70,7 +70,6 @@ export interface WatchedFolder {
 }
 
 export interface Exclusion {
-  watched_folder_id: number;
   folder_path: string;
   sha256: string;
   title: string;
@@ -162,7 +161,7 @@ export const api = {
   setFolderCollection: (id: number, enabled: boolean) => invoke<void>("set_folder_collection", { id, enabled }),
   rescanWatchedFolders: () => invoke<void>("rescan_watched_folders"),
   listExclusions: () => invoke<Exclusion[]>("list_exclusions"),
-  restoreExclusion: (folderId: number, sha256: string) => invoke<void>("restore_exclusion", { folderId, sha256 }),
+  restoreExclusion: (folderPath: string, sha256: string) => invoke<void>("restore_exclusion", { folderPath, sha256 }),
   getUiSettings: () => invoke<UiSettings>("get_ui_settings"),
   setUiSettings: (settings: UiSettings) => invoke<void>("set_ui_settings", { settings }),
   claimCoverJob: () => invoke<BookSummary | null>("claim_cover_job"),

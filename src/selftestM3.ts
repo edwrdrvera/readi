@@ -280,6 +280,26 @@ async function watchLive(m3: M3Config): Promise<Report> {
     return { booksAfterRescan: (await bookBySha(sha.exclude)).length, excluded: excl.some((e) => e.sha256 === sha.exclude) };
   });
 
+  await runStep(report, "exclusionReadd", async () => {
+    const folderA = (await api.listWatchedFolders()).find((f) => f.path === dirs.watchA);
+    if (!folderA) throw new Error("watchA is not a watched folder");
+    await api.removeWatchedFolder(folderA.id);
+    await s().addFolder(dirs.watchA);
+    const readded = await until("watchA rescanned", async () => {
+      const f = (await api.listWatchedFolders()).find((f) => f.path === dirs.watchA);
+      return f && f.id !== folderA.id && f.last_scan_at !== null && (await locationAt(sha.offRename, files.offRename))?.loc.availability === "available" ? f : null;
+    }, 60_000);
+    await api.rescanWatchedFolders();
+    await until("rescan after re-add", async () => ((await api.listWatchedFolders()).find((f) => f.id === readded.id)?.last_scan_at ?? 0) > readded.last_scan_at!, 30_000);
+    await sleep(500);
+    const excl = await api.listExclusions();
+    return {
+      newFolderId: readded.id !== folderA.id,
+      booksAfterRescan: (await bookBySha(sha.exclude)).length,
+      excluded: excl.some((e) => e.sha256 === sha.exclude && e.folder_path === dirs.watchA),
+    };
+  });
+
   await runStep(report, "organize", async () => {
     await s().createCollection("M3 Picks", [ids.dup, ids.explicit]);
     const pick = s().collections.find((c) => c.name === "M3 Picks");

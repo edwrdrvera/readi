@@ -317,7 +317,7 @@ export const useApp = create<AppState>((set, get) => ({
     await get().mutate("Could not rescan", () => api.rescanWatchedFolders());
   },
   async restoreExclusion(e) {
-    await get().mutate("Could not restore the book", () => api.restoreExclusion(e.watched_folder_id, e.sha256));
+    await get().mutate("Could not restore the book", () => api.restoreExclusion(e.folder_path, e.sha256));
   },
   async openBook(id) {
     const known = get().books.find((b) => b.id === id);

@@ -236,6 +236,8 @@ export async function runM3({ root, app, runPhase, check, notVerified, measured,
       check('explicit import of a watched-only book: added_copy, gains a managed location',
         w.explicit.outcome === 'added_copy' && w.explicit.sameId && w.explicit.kinds?.includes('managed'), w.explicit)
       check('removed watched book stays out after a rescan and is listed in exclusions', w.exclusion.booksAfterRescan === 0 && w.exclusion.excluded, w.exclusion)
+      check('removed watched book stays out after its folder is removed, re-added, and rescanned; exclusion still listed',
+        w.exclusionReadd?.newFolderId && w.exclusionReadd.booksAfterRescan === 0 && w.exclusionReadd.excluded, w.exclusionReadd)
       check('organization set: collection, folder collection, view', w.organize.collection !== null && w.organize.folderA !== null, w.organize)
       const p = w.palette
       check('⌘K keydown opens the palette', p.opened, p)
