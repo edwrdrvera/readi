@@ -178,6 +178,16 @@ fn summary_from_row(r: &rusqlite::Row) -> rusqlite::Result<BookSummary> {
 
 const SUMMARY_SELECT: &str = "SELECT b.*, j.state AS index_state FROM books b LEFT JOIN extraction_jobs j ON j.book_id = b.id";
 
+pub fn list_books(conn: &Connection) -> Result<Vec<BookSummary>, String> {
+    let mut stmt = conn
+        .prepare(&format!("{SUMMARY_SELECT} ORDER BY COALESCE(b.opened_at, b.added_at) DESC, b.id"))
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], summary_from_row)
+        .map_err(|e| e.to_string())?;
+    rows.collect::<Result<_, _>>().map_err(|e| e.to_string())
+}
+
 pub fn get_book(conn: &Connection, id: i64) -> Result<Option<BookSummary>, String> {
     conn.query_row(&format!("{SUMMARY_SELECT} WHERE b.id = ?1"), [id], summary_from_row)
         .optional()
