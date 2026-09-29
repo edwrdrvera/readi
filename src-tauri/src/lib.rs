@@ -79,6 +79,11 @@ fn submit_metadata(lib: Lib, id: i64, metadata: ExtractedMetadata) -> Result<(),
 }
 
 #[tauri::command]
+fn submit_text(lib: Lib, id: i64, extractor_version: u32, segments: Vec<TextSegment>) -> Result<IndexState, String> {
+    db::replace_text(&lib.conn.lock().unwrap(), id, extractor_version, &segments)
+}
+
+#[tauri::command]
 fn fail_extraction(lib: Lib, id: i64, error: String) -> Result<(), String> {
     db::fail_job(&lib.conn.lock().unwrap(), id, &error)
 }
@@ -120,6 +125,7 @@ pub fn run() {
             save_progress,
             claim_extraction_job,
             submit_metadata,
+            submit_text,
             fail_extraction,
             transport_stats,
         ])

@@ -175,10 +175,19 @@ pub struct TocItem {
     pub children: Vec<TocItem>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct TextSegment {
+    pub order: u32,
+    pub label: Option<String>,
+    pub text: String,
+}
+
 pub const MAX_TITLE: usize = 1024;
 pub const MAX_AUTHORS: usize = 32;
 pub const MAX_TOC_ENTRIES: usize = 20_000;
 pub const MAX_TOC_DEPTH: usize = 16;
+pub const MAX_SEGMENT_BYTES: usize = 1 << 20;
+pub const MAX_SEGMENTS: usize = 100_000;
 
 /// Strips control characters and truncates on a char boundary.
 pub fn clean_text(s: &str, max: usize) -> String {

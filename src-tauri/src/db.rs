@@ -398,12 +398,58 @@ pub fn claim_job(conn: &Connection, reclaim_stale: bool) -> Result<Option<i64>, 
     Ok(id)
 }
 
+/// Replaces a book's text index atomically.
+pub fn replace_text(
+    conn: &Connection,
+    id: i64,
+    extractor_version: u32,
+    segments: &[TextSegment],
+) -> Result<IndexState, String> {
+    if segments.len() > MAX_SEGMENTS {
+        return Err("too many text segments".into());
+    }
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM text_segments WHERE book_id = ?1", [id])
+        .map_err(|e| e.to_string())?;
+    let mut any = false;
+    for s in segments {
+        let text = clean_text(&s.text, MAX_SEGMENT_BYTES);
+        if text.is_empty() {
+            continue;
+        }
+        any = true;
+        tx.execute(
+            "INSERT INTO text_segments (book_id, seg_order, label, text, extractor_version) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![id, s.order, s.label.as_deref().map(|l| clean_text(l, 512)), text, extractor_version],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    let state = if any { IndexState::Ready } else { IndexState::NoSearchableText };
+    tx.execute(
+        "UPDATE extraction_jobs SET state = ?2, extractor_version = ?3, error = NULL, updated_at = ?4 WHERE book_id = ?1",
+        params![id, state.as_str(), extractor_version, now()],
+    )
+    .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(state)
+}
+
 pub fn fail_job(conn: &Connection, id: i64, error: &str) -> Result<(), String> {
     conn.execute(
         "UPDATE extraction_jobs SET state = 'failed', error = ?2, updated_at = ?3 WHERE book_id = ?1",
         params![id, clean_text(error, 2000), now()],
     )
     .map(|_| ())
+    .map_err(|e| e.to_string())
+}
+
+pub fn search_count(conn: &Connection, id: i64, word: &str) -> Result<i64, String> {
+    let quoted = format!("\"{}\"", word.replace('"', "\"\""));
+    conn.query_row(
+        "SELECT count(*) FROM book_text JOIN text_segments s ON s.id = book_text.rowid WHERE book_text MATCH ?1 AND s.book_id = ?2",
+        params![quoted, id],
+        |r| r.get(0),
+    )
     .map_err(|e| e.to_string())
 }
 
@@ -458,6 +504,19 @@ mod tests {
         assert_eq!(b.authors.len(), MAX_AUTHORS);
         let toc = get_toc(&conn, id).unwrap();
         assert_eq!(toc[0].children[0].label, "1.1");
+    }
+
+    #[test]
+    fn reindex_replaces_text_atomically() {
+        let (_d, conn) = fresh();
+        let id = insert_managed_book(&conn, "abc", Format::Epub, "file", 10, "abc.epub").unwrap();
+        assert_eq!(claim_job(&conn, false).unwrap(), Some(id));
+        let seg = |t: &str| TextSegment { order: 0, label: None, text: t.into() };
+        replace_text(&conn, id, 1, &[seg("alpha bravo")]).unwrap();
+        replace_text(&conn, id, 2, &[seg("charlie")]).unwrap();
+        assert_eq!(search_count(&conn, id, "alpha").unwrap(), 0);
+        assert_eq!(search_count(&conn, id, "charlie").unwrap(), 1);
+        assert_eq!(replace_text(&conn, id, 3, &[seg("  ")]).unwrap(), IndexState::NoSearchableText);
     }
 
     #[test]
