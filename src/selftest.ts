@@ -1,7 +1,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, type BookSummary } from "./lib/api";
 import { useApp } from "./lib/store";
-import { importPaths } from "./App";
+import { importPaths } from "./lib/importing";
 import { activeReader } from "./reader/handle";
 
 // Drives the packaged app when READI_SELFTEST is set. scripts/packaged-check.mjs
@@ -140,7 +140,7 @@ async function first(fixtures: string[], sha: Record<string, string>) {
   }
 
   await activeReader()?.flush();
-  useApp.getState().closeBook();
+  await useApp.getState().closeBook();
   report.ok = true;
   return report;
 }
@@ -167,7 +167,7 @@ async function restore(sha: Record<string, string>) {
     report[key] = { openMs, stored, restoredPage: Number(document.querySelector<HTMLCanvasElement>(".pdf-host canvas")?.dataset.renderedPage) };
   }
   report.readingStates = (await api.listBooks()).map((b) => `${b.title}: ${b.reading_state}`);
-  useApp.getState().closeBook();
+  await useApp.getState().closeBook();
   report.ok = true;
   return report;
 }

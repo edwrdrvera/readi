@@ -6,7 +6,7 @@ import { setActiveReader } from "./handle";
 import { useSaver } from "./useSaver";
 
 /** M1 PDF view: one fitted page at a time. Only the visible page is rendered. */
-export function PdfReader({ detail }: { detail: BookDetail }) {
+export function PdfReader({ detail, prefs: _prefs }: { detail: BookDetail; prefs: import("../lib/prefs").Prefs }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [doc, setDoc] = useState<PdfDoc | null>(null);
   const docReady = useRef<{ promise: Promise<PdfDoc>; resolve: (d: PdfDoc) => void } | null>(null);
