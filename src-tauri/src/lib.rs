@@ -260,11 +260,14 @@ const VIEW: &[Item] = &[
     ("text.bigger", "Larger", Some("CmdOrCtrl+=")),
     ("text.smaller", "Smaller", Some("CmdOrCtrl+-")),
 ];
-// The palette has no accelerator: the frontend keydown handler owns ⌘K so the self test can drive it.
+// These have no accelerator: the frontend keydown handler owns ⌘K, ⌘F, ⌘⇧F, and ⌘D so the self test can drive them.
 const GO: &[Item] = &[
     ("nav.back", "Back", Some("CmdOrCtrl+[")),
     ("library.return", "Return to Library", None),
     ("palette.open", "Command Palette\u{2026}", None),
+    ("search.book", "Find in Book\u{2026}", None),
+    ("search.library", "Search Library\u{2026}", None),
+    ("bookmark.add", "Add Bookmark", None),
 ];
 
 fn custom_items(app: &AppHandle, items: &[Item]) -> tauri::Result<Vec<MenuItem<Wry>>> {

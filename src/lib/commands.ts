@@ -2,7 +2,7 @@ import type { Format } from "./api";
 import { backHistory } from "./history";
 import { pickAndImport } from "./importing";
 import { PDF_SCALE, resolvePrefs, stepFontSize, type PrefKey, type Prefs, type ThemePref } from "./prefs";
-import { useApp } from "./store";
+import { useApp, type SidebarTab } from "./store";
 import { activeReader, type ReaderHandle } from "../reader/handle";
 
 export interface CommandContext {
@@ -85,9 +85,55 @@ const readingRegion = () => document.querySelector<HTMLElement>("[data-reading-r
 
 let sidebarOpener: HTMLElement | null = null;
 
-export function openSidebar(opener: Element | null = document.activeElement) {
-  sidebarOpener = opener instanceof HTMLElement ? opener : null;
-  useApp.getState().setSidebar({ open: true });
+export function openSidebar(opener: Element | null = document.activeElement, tab?: SidebarTab) {
+  const s = useApp.getState();
+  // Reopening from inside the sidebar keeps the original opener.
+  if (!s.sidebar.open || !(opener instanceof Element && opener.closest("[data-reader-sidebar]"))) {
+    sidebarOpener = opener instanceof HTMLElement ? opener : null;
+  }
+  s.setSidebar({ open: true, ...(tab ? { tab } : {}) });
+}
+
+export function openBookSearch(opener: Element | null = document.activeElement) {
+  openSidebar(opener, "search");
+  requestAnimationFrame(() => {
+    const input = document.querySelector<HTMLInputElement>('[data-testid="search-input"]');
+    input?.focus();
+    input?.select();
+  });
+}
+
+let librarySearchOpener: HTMLElement | null = null;
+
+export function openLibrarySearch(opener: Element | null = document.activeElement) {
+  librarySearchOpener = opener instanceof HTMLElement ? opener : null;
+  useApp.getState().setLibrarySearchOpen(true);
+}
+
+/** Focus target when library search closes without opening a book. */
+export function takeLibrarySearchOpener(): HTMLElement | null {
+  const target = librarySearchOpener?.isConnected ? librarySearchOpener : readingRegion();
+  librarySearchOpener = null;
+  return target;
+}
+
+/** Escape: the note editor, then the highlight popover, then an unpinned sidebar. */
+export function dismissForemost(): boolean {
+  const s = useApp.getState();
+  if (s.editingId !== null) {
+    s.setEditing(null);
+    return true;
+  }
+  if (s.selection) {
+    activeReader()?.clearSelection();
+    s.setSelection(null);
+    return true;
+  }
+  if (s.screen.name === "reader" && s.sidebar.open && !s.sidebar.pinned) {
+    closeSidebar();
+    return true;
+  }
+  return false;
 }
 
 export function closeSidebar() {
@@ -135,6 +181,27 @@ export const commands: Command[] = [
     shortcuts: [],
     when: (ctx) => ctx.screen === "reader",
     run: () => useApp.getState().closeBook(),
+  },
+  {
+    id: "search.book",
+    label: "Find in Book",
+    shortcuts: [{ key: "f", meta: true }],
+    when: (ctx) => ctx.screen === "reader",
+    run: () => openBookSearch(),
+  },
+  {
+    id: "search.library",
+    label: "Search Library",
+    shortcuts: [{ key: "f", meta: true, shift: true }],
+    when: () => true,
+    run: () => openLibrarySearch(),
+  },
+  {
+    id: "bookmark.add",
+    label: "Add Bookmark",
+    shortcuts: [{ key: "d", meta: true }],
+    when: inReader,
+    run: () => useApp.getState().addBookmark(),
   },
   {
     id: "sidebar.toggle",
@@ -187,8 +254,11 @@ export const commands: Command[] = [
     palette: false,
     shortcuts: [{ key: "Escape" }],
     // Popovers and sheets dismiss themselves and mark the event handled.
-    when: (ctx) => ctx.screen === "reader" && useApp.getState().sidebar.open && !useApp.getState().sidebar.pinned,
-    run: () => closeSidebar(),
+    when: (ctx) => {
+      const s = useApp.getState();
+      return ctx.screen === "reader" && (s.editingId !== null || s.selection !== null || (s.sidebar.open && !s.sidebar.pinned));
+    },
+    run: () => void dismissForemost(),
   },
 ];
 
