@@ -43,7 +43,7 @@ async function openAndWait(id: number) {
 }
 
 async function pdfRendered(page: number) {
-  await until(`page ${page} rendered`, () => document.querySelector<HTMLCanvasElement>(".pdf-host canvas")?.dataset.renderedPage === String(page));
+  await until(`page ${page} rendered`, () => document.querySelector(`.pdf-host canvas[data-rendered-page="${page}"]`));
 }
 
 async function first(fixtures: string[], sha: Record<string, string>) {
@@ -161,10 +161,11 @@ async function restore(sha: Record<string, string>) {
   for (const [key, book] of [["largePdf", large], ["textPdf", text]] as const) {
     const detail = await api.openBook(book.id);
     const stored = detail.progress?.locator;
-    const { openMs } = await openAndWait(book.id);
+    const { reader, openMs } = await openAndWait(book.id);
     const page = stored?.format === "pdf" ? stored.page_index : 0;
     await pdfRendered(page);
-    report[key] = { openMs, stored, restoredPage: Number(document.querySelector<HTMLCanvasElement>(".pdf-host canvas")?.dataset.renderedPage) };
+    const restored = reader.location();
+    report[key] = { openMs, stored, restoredPage: restored?.format === "pdf" ? restored.page_index : null };
   }
   report.readingStates = (await api.listBooks()).map((b) => `${b.title}: ${b.reading_state}`);
   await useApp.getState().closeBook();
