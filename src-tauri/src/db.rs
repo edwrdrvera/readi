@@ -296,15 +296,29 @@ pub fn insert_managed_book(
     Ok(id)
 }
 
-/// Returns (kind, path) for the first available location.
-pub fn book_location(conn: &Connection, id: i64) -> Result<Option<(String, String, Format)>, String> {
+pub struct ServedLocation {
+    pub kind: String,
+    pub path: String,
+    pub format: Format,
+    pub observed_size: Option<i64>,
+    pub observed_mtime: Option<i64>,
+}
+
+/// The first available location, with the stat recorded when it was verified.
+pub fn book_location(conn: &Connection, id: i64) -> Result<Option<ServedLocation>, String> {
     conn.query_row(
-        "SELECT l.kind, l.path, b.format FROM book_locations l JOIN books b ON b.id = l.book_id
+        "SELECT l.kind, l.path, b.format, l.observed_size, l.observed_mtime FROM book_locations l JOIN books b ON b.id = l.book_id
          WHERE l.book_id = ?1 AND l.availability = 'available' ORDER BY l.id LIMIT 1",
         [id],
         |r| {
             let f: String = r.get(2)?;
-            Ok((r.get(0)?, r.get(1)?, Format::parse(&f).unwrap_or(Format::Epub)))
+            Ok(ServedLocation {
+                kind: r.get(0)?,
+                path: r.get(1)?,
+                format: Format::parse(&f).unwrap_or(Format::Epub),
+                observed_size: r.get(3)?,
+                observed_mtime: r.get(4)?,
+            })
         },
     )
     .optional()

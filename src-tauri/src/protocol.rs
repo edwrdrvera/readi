@@ -45,7 +45,9 @@ fn respond(status: StatusCode, body: Vec<u8>) -> Response<Vec<u8>> {
         .unwrap()
 }
 
-pub fn handle(lib: &Library, stats: &TransportStats, req: &Request<Vec<u8>>) -> Response<Vec<u8>> {
+/// `rescan` is called when a watched file no longer matches what the last
+/// scan verified, so the library catches up with the change.
+pub fn handle(lib: &Library, stats: &TransportStats, req: &Request<Vec<u8>>, rescan: &dyn Fn()) -> Response<Vec<u8>> {
     if req.method() == "OPTIONS" {
         return Response::builder()
             .status(StatusCode::NO_CONTENT)
@@ -60,14 +62,27 @@ pub fn handle(lib: &Library, stats: &TransportStats, req: &Request<Vec<u8>>) -> 
         return respond(StatusCode::NOT_FOUND, vec![]);
     };
     let location = db::book_location(&lib.conn.lock().unwrap(), id);
-    let Ok(Some((kind, rel, format))) = location else {
+    let Ok(Some(loc)) = location else {
         return respond(StatusCode::NOT_FOUND, vec![]);
     };
-    let file_path = lib.resolve(&kind, &rel);
+    let format = loc.format;
+    let watched = loc.kind == "watched";
+    let file_path = lib.resolve(&loc.kind, &loc.path);
     let Ok(mut file) = std::fs::File::open(&file_path) else {
+        if watched {
+            rescan();
+        }
         return respond(StatusCode::GONE, vec![]);
     };
-    let len = file.metadata().map(|m| m.len()).unwrap_or(0);
+    let meta = file.metadata().ok();
+    let len = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+    if watched {
+        let mtime = meta.as_ref().map(crate::watch::mtime_ms);
+        if loc.observed_size != Some(len as i64) || loc.observed_mtime != mtime {
+            rescan();
+            return respond(StatusCode::CONFLICT, vec![]);
+        }
+    }
     let range = req.headers().get(header::RANGE).and_then(|v| v.to_str().ok());
 
     let (status, start, end) = match range {
@@ -118,7 +133,7 @@ mod tests {
         if let Some(r) = range {
             b = b.header("Range", r);
         }
-        handle(lib, &TransportStats::default(), &b.body(vec![]).unwrap())
+        handle(lib, &TransportStats::default(), &b.body(vec![]).unwrap(), &|| {})
     }
 
     #[test]
