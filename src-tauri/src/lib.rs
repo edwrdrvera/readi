@@ -166,6 +166,20 @@ fn fail_extraction(lib: Lib, id: i64, error: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn retry_extraction(app: AppHandle, lib: Lib, id: i64) -> Result<(), String> {
+    db::retry_job(&lib.conn.lock().unwrap(), id)?;
+    let _ = app.emit("library-changed", ());
+    Ok(())
+}
+
+#[tauri::command]
+fn reindex_book(app: AppHandle, lib: Lib, id: i64) -> Result<(), String> {
+    db::reindex_book(&lib.conn.lock().unwrap(), id)?;
+    let _ = app.emit("library-changed", ());
+    Ok(())
+}
+
+#[tauri::command]
 fn transport_stats(stats: State<Arc<TransportStats>>, id: i64) -> protocol::Stats {
     stats.0.lock().unwrap().get(&id).copied().unwrap_or_default()
 }
@@ -398,6 +412,8 @@ pub fn run() {
             submit_metadata,
             submit_text,
             fail_extraction,
+            retry_extraction,
+            reindex_book,
             transport_stats,
             count_text_matches,
             get_prefs,

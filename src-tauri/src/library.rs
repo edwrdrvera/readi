@@ -39,6 +39,7 @@ impl Library {
         fs::create_dir_all(root.join(".staging")).map_err(|e| e.to_string())?;
         fs::create_dir_all(&covers).map_err(|e| e.to_string())?;
         let conn = db::open(&data_dir.join("readi.sqlite"))?;
+        db::requeue_unmapped(&conn)?;
         let lib = Self { root, covers, conn: Mutex::new(conn) };
         lib.reconcile()?;
         Ok(lib)

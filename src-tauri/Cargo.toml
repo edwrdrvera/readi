@@ -28,6 +28,7 @@ hex = "0.4.3"
 uuid = { version = "1.26.1", features = ["v4"] }
 tauri-plugin-dialog = "2"
 notify = "8"
+unicode-normalization = "0.1.25"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
