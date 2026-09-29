@@ -21,6 +21,12 @@ export interface BookSummary {
   opened_at: number | null;
 }
 
+export interface TocItem {
+  label: string;
+  target: string;
+  children: TocItem[];
+}
+
 export interface Progress {
   locator: Locator;
   percent: number;
@@ -30,6 +36,7 @@ export interface Progress {
 export interface BookDetail {
   book: BookSummary;
   progress: Progress | null;
+  toc: TocItem[];
 }
 
 export type ImportOutcome =

@@ -17,6 +17,7 @@ type Lib<'a> = State<'a, Arc<Library>>;
 struct BookDetail {
     book: BookSummary,
     progress: Option<Progress>,
+    toc: Vec<TocItem>,
 }
 
 #[derive(Serialize)]
@@ -54,6 +55,7 @@ fn open_book(lib: Lib, id: i64) -> Result<BookDetail, String> {
     Ok(BookDetail {
         book: db::get_book(&conn, id)?.ok_or("Book not found")?,
         progress: db::get_progress(&conn, id)?,
+        toc: db::get_toc(&conn, id)?,
     })
 }
 
@@ -69,6 +71,11 @@ fn claim_extraction_job(lib: Lib, reclaim_stale: bool) -> Result<Option<BookSumm
         Some(id) => db::get_book(&conn, id),
         None => Ok(None),
     }
+}
+
+#[tauri::command]
+fn submit_metadata(lib: Lib, id: i64, metadata: ExtractedMetadata) -> Result<(), String> {
+    db::save_metadata(&lib.conn.lock().unwrap(), id, &metadata)
 }
 
 #[tauri::command]
@@ -112,6 +119,7 @@ pub fn run() {
             open_book,
             save_progress,
             claim_extraction_job,
+            submit_metadata,
             fail_extraction,
             transport_stats,
         ])
