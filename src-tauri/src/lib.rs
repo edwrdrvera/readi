@@ -1,9 +1,11 @@
 mod db;
+mod jobs;
 mod library;
 mod model;
 mod prefs;
 mod protocol;
 
+use jobs::{Jobs, LibraryEvent};
 use library::Library;
 use model::*;
 use protocol::TransportStats;
@@ -20,13 +22,7 @@ struct BookDetail {
     book: BookSummary,
     progress: Option<Progress>,
     toc: Vec<TocItem>,
-}
-
-#[derive(Serialize)]
-#[serde(tag = "status", rename_all = "snake_case")]
-enum ImportOutcome {
-    Imported { path: String, result: ImportResult },
-    Failed { path: String, reason: String },
+    locations: Vec<Location>,
 }
 
 #[tauri::command]
@@ -35,29 +31,107 @@ fn list_books(lib: Lib) -> Result<Vec<BookSummary>, String> {
 }
 
 #[tauri::command]
-async fn import_books(lib: Lib<'_>, paths: Vec<String>) -> Result<Vec<ImportOutcome>, String> {
+fn import_books(jobs: State<Arc<Jobs>>, paths: Vec<String>) -> Result<Vec<ImportJob>, String> {
+    jobs.enqueue(paths)
+}
+
+#[tauri::command]
+fn list_import_jobs(jobs: State<Arc<Jobs>>) -> Result<Vec<ImportJob>, String> {
+    jobs.list()
+}
+
+#[tauri::command]
+fn cancel_import(jobs: State<Arc<Jobs>>, job_id: i64) -> Result<(), String> {
+    jobs.cancel(job_id)
+}
+
+#[tauri::command]
+fn get_locations(lib: Lib, id: i64) -> Result<Vec<Location>, String> {
+    lib.locations(id)
+}
+
+#[tauri::command]
+async fn locate_book(lib: Lib<'_>, id: i64, path: String) -> Result<BookSummary, String> {
     let lib = lib.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        paths
-            .into_iter()
-            .map(|path| match lib.import(&PathBuf::from(&path)) {
-                Ok(result) => ImportOutcome::Imported { path, result },
-                Err(reason) => ImportOutcome::Failed { path, reason },
-            })
-            .collect()
-    })
-    .await
-    .map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || lib.locate_book(id, &PathBuf::from(path)))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn remove_book(lib: Lib, id: i64) -> Result<(), String> {
+    lib.remove_book(id)
+}
+
+#[tauri::command]
+fn remove_managed_copy(lib: Lib, id: i64) -> Result<(), String> {
+    lib.remove_managed_copy(id)
+}
+
+#[tauri::command]
+fn set_reading_state(lib: Lib, id: i64, state: ReadingState) -> Result<(), String> {
+    db::set_reading_state(&lib.conn.lock().unwrap(), id, state)
+}
+
+#[tauri::command]
+fn list_collections(lib: Lib) -> Result<Vec<Collection>, String> {
+    db::list_collections(&lib.conn.lock().unwrap())
+}
+
+#[tauri::command]
+fn create_collection(lib: Lib, name: String) -> Result<Collection, String> {
+    db::create_collection(&lib.conn.lock().unwrap(), &name)
+}
+
+#[tauri::command]
+fn rename_collection(lib: Lib, id: i64, name: String) -> Result<(), String> {
+    db::rename_collection(&lib.conn.lock().unwrap(), id, &name)
+}
+
+#[tauri::command]
+fn delete_collection(lib: Lib, id: i64) -> Result<(), String> {
+    db::delete_collection(&lib.conn.lock().unwrap(), id)
+}
+
+#[tauri::command]
+fn set_collection_membership(lib: Lib, collection_id: i64, book_ids: Vec<i64>, member: bool) -> Result<(), String> {
+    db::set_collection_membership(&lib.conn.lock().unwrap(), collection_id, &book_ids, member)
+}
+
+#[tauri::command]
+fn get_ui_settings(lib: Lib) -> Result<UiSettings, String> {
+    db::get_ui_settings(&lib.conn.lock().unwrap())
+}
+
+#[tauri::command]
+fn set_ui_settings(lib: Lib, settings: UiSettings) -> Result<(), String> {
+    db::set_ui_settings(&lib.conn.lock().unwrap(), &settings)
+}
+
+#[tauri::command]
+fn claim_cover_job(lib: Lib) -> Result<Option<BookSummary>, String> {
+    let conn = lib.conn.lock().unwrap();
+    match db::claim_cover(&conn)? {
+        Some(id) => db::get_book(&conn, id),
+        None => Ok(None),
+    }
+}
+
+#[tauri::command]
+fn submit_cover(lib: Lib, id: i64, bytes: Option<Vec<u8>>) -> Result<(), String> {
+    lib.submit_cover(id, bytes)
 }
 
 #[tauri::command]
 fn open_book(lib: Lib, id: i64) -> Result<BookDetail, String> {
+    let locations = lib.locations(id)?;
     let conn = lib.conn.lock().unwrap();
     db::mark_opened(&conn, id)?;
     Ok(BookDetail {
         book: db::get_book(&conn, id)?.ok_or("Book not found")?,
         progress: db::get_progress(&conn, id)?,
         toc: db::get_toc(&conn, id)?,
+        locations,
     })
 }
 
@@ -182,7 +256,12 @@ const VIEW: &[Item] = &[
     ("text.bigger", "Larger", Some("CmdOrCtrl+=")),
     ("text.smaller", "Smaller", Some("CmdOrCtrl+-")),
 ];
-const GO: &[Item] = &[("nav.back", "Back", Some("CmdOrCtrl+[")), ("library.return", "Return to Library", None)];
+// The palette has no accelerator: the frontend keydown handler owns ⌘K so the self test can drive it.
+const GO: &[Item] = &[
+    ("nav.back", "Back", Some("CmdOrCtrl+[")),
+    ("library.return", "Return to Library", None),
+    ("palette.open", "Command Palette\u{2026}", None),
+];
 
 fn custom_items(app: &AppHandle, items: &[Item]) -> tauri::Result<Vec<MenuItem<Wry>>> {
     items.iter().map(|(id, label, accel)| MenuItem::with_id(app, *id, *label, true, *accel)).collect()
@@ -263,8 +342,20 @@ pub fn run() {
                 Err(_) => app.path().app_data_dir()?,
             };
             std::fs::create_dir_all(&data_dir)?;
-            let lib = Library::open(&data_dir).map_err(|e| format!("Cannot open library: {e}"))?;
-            app.manage(Arc::new(lib));
+            let lib = Arc::new(Library::open(&data_dir).map_err(|e| format!("Cannot open library: {e}"))?);
+            let handle = app.handle().clone();
+            let jobs = Jobs::new(
+                lib.clone(),
+                Arc::new(move |event| {
+                    let _ = match event {
+                        LibraryEvent::ImportJob(job) => handle.emit("import-job", job),
+                        LibraryEvent::LibraryChanged => handle.emit("library-changed", ()),
+                    };
+                }),
+            );
+            jobs.spawn_worker();
+            app.manage(jobs);
+            app.manage(lib);
             app.manage(stats);
             Ok(())
         })
@@ -278,6 +369,22 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_books,
             import_books,
+            list_import_jobs,
+            cancel_import,
+            get_locations,
+            locate_book,
+            remove_book,
+            remove_managed_copy,
+            set_reading_state,
+            list_collections,
+            create_collection,
+            rename_collection,
+            delete_collection,
+            set_collection_membership,
+            get_ui_settings,
+            set_ui_settings,
+            claim_cover_job,
+            submit_cover,
             open_book,
             save_progress,
             claim_extraction_job,
@@ -294,6 +401,33 @@ pub fn run() {
             selftest_report,
             selftest_log,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = event {
+                open_with(app, urls);
+            }
+        });
+}
+
+/// Finder's Open With. Files opened at launch can arrive before the frontend
+/// listens; the jobs are persisted, so it lists them when it starts.
+#[cfg(target_os = "macos")]
+fn open_with(app: &AppHandle, urls: Vec<tauri::Url>) {
+    let paths: Vec<String> = urls
+        .iter()
+        .filter_map(|u| u.to_file_path().ok())
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect();
+    if let Some(jobs) = app.try_state::<Arc<Jobs>>() {
+        if let Err(e) = jobs.enqueue(paths) {
+            eprintln!("open with: {e}");
+        }
+    }
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
 }

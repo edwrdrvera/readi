@@ -155,12 +155,6 @@ pub struct BookSummary {
     pub collection_ids: Vec<i64>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct ImportResult {
-    pub book: BookSummary,
-    pub already_in_library: bool,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ReadingState {
@@ -169,11 +163,34 @@ pub enum ReadingState {
     Finished,
 }
 
+impl ReadingState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Unread => "unread",
+            Self::Reading => "reading",
+            Self::Finished => "finished",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LocationKind {
     Managed,
     Watched,
+}
+
+impl LocationKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Managed => "managed",
+            Self::Watched => "watched",
+        }
+    }
+
+    pub fn parse(s: &str) -> Self {
+        if s == "managed" { Self::Managed } else { Self::Watched }
+    }
 }
 
 /// Why a location can or cannot be read. A book is Missing only when no
@@ -230,6 +247,28 @@ pub enum JobState {
     Cancelled,
 }
 
+impl JobState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Queued => "queued",
+            Self::Running => "running",
+            Self::Done => "done",
+            Self::Failed => "failed",
+            Self::Cancelled => "cancelled",
+        }
+    }
+
+    pub fn parse(s: &str) -> Self {
+        match s {
+            "running" => Self::Running,
+            "done" => Self::Done,
+            "failed" => Self::Failed,
+            "cancelled" => Self::Cancelled,
+            _ => Self::Queued,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ImportOutcome {
@@ -239,6 +278,25 @@ pub enum ImportOutcome {
     AddedCopy,
     /// The hash already had a managed copy; the UI focuses it.
     AlreadyInLibrary,
+}
+
+impl ImportOutcome {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Imported => "imported",
+            Self::AddedCopy => "added_copy",
+            Self::AlreadyInLibrary => "already_in_library",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "imported" => Some(Self::Imported),
+            "added_copy" => Some(Self::AddedCopy),
+            "already_in_library" => Some(Self::AlreadyInLibrary),
+            _ => None,
+        }
+    }
 }
 
 /// One managed import. Persisted so an interrupted import can be retried or
