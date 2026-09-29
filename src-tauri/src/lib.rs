@@ -1,9 +1,11 @@
+mod annotations;
 mod db;
 mod jobs;
 mod library;
 mod model;
 mod prefs;
 mod protocol;
+mod search;
 mod watch;
 
 use jobs::{Jobs, LibraryEvent};
@@ -163,6 +165,55 @@ fn submit_text(lib: Lib, id: i64, extractor_version: u32, segments: Vec<TextSegm
 #[tauri::command]
 fn fail_extraction(lib: Lib, id: i64, error: String) -> Result<(), String> {
     db::fail_job(&lib.conn.lock().unwrap(), id, &error)
+}
+
+#[tauri::command]
+fn retry_extraction(app: AppHandle, lib: Lib, id: i64) -> Result<(), String> {
+    db::retry_job(&lib.conn.lock().unwrap(), id)?;
+    let _ = app.emit("library-changed", ());
+    Ok(())
+}
+
+#[tauri::command]
+fn reindex_book(app: AppHandle, lib: Lib, id: i64) -> Result<(), String> {
+    db::reindex_book(&lib.conn.lock().unwrap(), id)?;
+    let _ = app.emit("library-changed", ());
+    Ok(())
+}
+
+#[tauri::command]
+fn search_book(lib: Lib, id: i64, query: String) -> Result<BookSearch, String> {
+    search::search_book(&lib.conn.lock().unwrap(), id, &query)
+}
+
+#[tauri::command]
+fn search_library(lib: Lib, query: String) -> Result<LibrarySearch, String> {
+    search::search_library(&lib.conn.lock().unwrap(), &query)
+}
+
+#[tauri::command]
+fn list_annotations(lib: Lib, book_id: i64) -> Result<Vec<Annotation>, String> {
+    annotations::list(&lib.conn.lock().unwrap(), book_id)
+}
+
+#[tauri::command]
+fn create_annotation(lib: Lib, annotation: NewAnnotation) -> Result<Annotation, String> {
+    annotations::create(&lib.conn.lock().unwrap(), annotation)
+}
+
+#[tauri::command]
+fn update_annotation(lib: Lib, id: i64, patch: AnnotationPatch) -> Result<Annotation, String> {
+    annotations::update(&lib.conn.lock().unwrap(), id, patch)
+}
+
+#[tauri::command]
+fn delete_annotation(lib: Lib, id: i64) -> Result<(), String> {
+    annotations::delete(&lib.conn.lock().unwrap(), id)
+}
+
+#[tauri::command]
+fn set_anchor_states(lib: Lib, states: Vec<(i64, AnchorState)>) -> Result<(), String> {
+    annotations::set_anchor_states(&lib.conn.lock().unwrap(), &states)
 }
 
 #[tauri::command]
@@ -401,6 +452,15 @@ pub fn run() {
             submit_metadata,
             submit_text,
             fail_extraction,
+            retry_extraction,
+            reindex_book,
+            search_book,
+            search_library,
+            list_annotations,
+            create_annotation,
+            update_annotation,
+            delete_annotation,
+            set_anchor_states,
             transport_stats,
             count_text_matches,
             get_prefs,

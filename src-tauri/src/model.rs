@@ -427,6 +427,10 @@ pub struct TextSegment {
     pub mapping: Option<TextMapping>,
 }
 
+/// The first extractor version whose segments carry a TextMapping. Older
+/// indexes are rebuilt on launch.
+pub const MIN_MAPPED_EXTRACTOR_VERSION: u32 = 2;
+
 /// Current text mapping version. See src/lib/textmap.ts.
 pub const TEXT_MAP_VERSION: u32 = 1;
 
