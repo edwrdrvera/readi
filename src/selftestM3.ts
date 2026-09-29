@@ -338,6 +338,32 @@ async function watchLive(m3: M3Config): Promise<Report> {
     return { opened, selected: selected.dataset.commandId, runs, finished, closed };
   });
 
+  await runStep(report, "paletteLibrary", async () => {
+    const id = ids.dup;
+    await until("library screen", () => s().screen.name === "library", 5000);
+    const card = await until("dup card button", () => document.querySelector<HTMLButtonElement>(`[data-book-id="${id}"] button`), 5000);
+    card.focus();
+    const focused = await until("card focused", () => s().focusedBookId === id, 3000).catch(() => false);
+    const statesBefore = new Map((await books()).map((b) => [b.id, b.reading_state]));
+    const before = commandRuns["book.finished"] ?? 0;
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
+    const input = await until("palette input", () => document.querySelector<HTMLInputElement>("[cmdk-input]"), 5000);
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    setValue.call(input, "Mark as Finished");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    const selected = await until("Mark as Finished selected", () => {
+      const el = document.querySelector<HTMLElement>('[cmdk-item][data-selected="true"]');
+      return el?.dataset.commandId === "book.finished" ? el : null;
+    }, 5000);
+    const label = selected.textContent ?? "";
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    const finished = await until("focused book finished", async () => (await books()).find((b) => b.id === id)?.reading_state === "finished", 5000).catch(() => false);
+    await until("palette closed", () => !s().paletteOpen, 3000).catch(() => false);
+    const changed = (await books()).filter((b) => statesBefore.get(b.id) !== b.reading_state).map((b) => b.id);
+    const runs = (commandRuns["book.finished"] ?? 0) - before;
+    return { focused, label, namesBook: label.includes(`: ${(await books()).find((b) => b.id === id)?.title}`), runs, finished, changed, expected: [id] };
+  });
+
   report.ok = true;
   return report;
 }

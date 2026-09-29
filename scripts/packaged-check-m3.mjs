@@ -243,6 +243,9 @@ export async function runM3({ root, app, runPhase, check, notVerified, measured,
       check('⌘K keydown opens the palette', p.opened, p)
       check('palette: typing + Enter runs Mark as Finished exactly once', p.selected === 'book.finished' && p.runs === 1, p)
       check('palette: Mark as Finished took effect and the palette closed', p.finished && p.closed, p)
+      const pl = w.paletteLibrary
+      check('palette in the Library: Mark as Finished targets the focused card and names it', pl?.focused && pl.namesBook, pl)
+      check('palette in the Library: Mark as Finished runs once and changes exactly one book', pl?.runs === 1 && pl.finished && pl.changed?.length === 1 && pl.changed[0] === pl.expected[0], pl)
       const viaRescan = ['add', 'rename', 'moveOut', 'delete', 'change', 'permission'].filter(k => w[k]?.viaRescan)
       check('live changes seen through file events, without a manual rescan', viaRescan.length === 0, viaRescan)
     }
