@@ -525,4 +525,136 @@ mod tests {
         assert_eq!(r.results.len(), 1);
         assert_eq!(search_book(&conn, indexing, "cat").unwrap().index_state, IndexState::Queued);
     }
+    struct Rng(u64);
+
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            self.0 >> 33
+        }
+
+        fn unit(&mut self) -> f64 {
+            self.next() as f64 / (1u64 << 31) as f64
+        }
+    }
+
+    fn vocabulary(n: usize) -> Vec<String> {
+        const SYL: [&str; 24] =
+            ["ka", "lo", "mi", "ren", "to", "sa", "vel", "qu", "or", "an", "the", "is", "ber", "di", "nu", "pha", "sto", "el", "ric", "ya", "mon", "gu", "ze", "wy"];
+        (0..n)
+            .map(|mut i| {
+                let mut w = String::new();
+                loop {
+                    w.push_str(SYL[i % SYL.len()]);
+                    i /= SYL.len();
+                    if i == 0 {
+                        break w;
+                    }
+                    i -= 1;
+                }
+            })
+            .collect()
+    }
+
+    fn stats(label: &str, mut ms: Vec<f64>) {
+        ms.sort_by(f64::total_cmp);
+        let at = |p: f64| ms[((ms.len() - 1) as f64 * p).round() as usize];
+        println!("{label}: p50 {:.1} ms, p95 {:.1} ms, max {:.1} ms", at(0.5), at(0.95), ms[ms.len() - 1]);
+    }
+
+    /// cargo test --release -- --ignored --nocapture search_perf
+    #[test]
+    #[ignore]
+    fn search_perf() {
+        const BOOKS: usize = 100;
+        const WORDS_PER_BOOK: usize = 100_000;
+        const WORDS_PER_SEGMENT: usize = 3_000;
+        const VOCAB: usize = 30_000;
+        let vocab = vocabulary(VOCAB);
+        let mut cdf = Vec::with_capacity(VOCAB);
+        let mut acc = 0.0;
+        for r in 1..=VOCAB {
+            acc += 1.0 / r as f64;
+            cdf.push(acc);
+        }
+        let mut rng = Rng(42);
+        let (_d, conn) = fresh();
+        let started = std::time::Instant::now();
+        let mut ids = Vec::new();
+        for b in 0..BOOKS {
+            let mut segments = Vec::new();
+            for order in 0..WORDS_PER_BOOK / WORDS_PER_SEGMENT + 1 {
+                let mut text = String::new();
+                let mut units = Vec::new();
+                let mut unit_start = 0u32;
+                for w in 0..WORDS_PER_SEGMENT {
+                    let x = rng.unit() * acc;
+                    let word = &vocab[cdf.partition_point(|c| *c < x).min(VOCAB - 1)];
+                    if !text.is_empty() {
+                        text.push(if w % 120 == 0 { '\n' } else { ' ' });
+                    }
+                    if w % 120 == 0 && w > 0 {
+                        let end = text.len() as u32 - 1;
+                        units.push([unit_start, units.len() as u32, end - unit_start]);
+                        unit_start = end + 1;
+                    }
+                    text.push_str(word);
+                }
+                units.push([unit_start, units.len() as u32, text.len() as u32 - unit_start]);
+                let mapping = Some(TextMapping { v: TEXT_MAP_VERSION, units });
+                segments.push(TextSegment { order: order as u32, label: Some(format!("Chapter {order}")), text, mapping });
+            }
+            let title = format!("{} {}", vocab[b * 7 + 3], vocab[200 + b]);
+            ids.push(book(&conn, &format!("{b:064}"), &title, &[&vocab[5000 + b]], &segments));
+        }
+        let segments: i64 = conn.query_row("SELECT count(*) FROM text_segments", [], |r| r.get(0)).unwrap();
+        println!(
+            "corpus: {BOOKS} books, {} words, {segments} segments, vocabulary {VOCAB} (Zipf), built in {:.1}s",
+            BOOKS * (WORDS_PER_BOOK / WORDS_PER_SEGMENT + 1) * WORDS_PER_SEGMENT,
+            started.elapsed().as_secs_f64()
+        );
+        let v = |r: usize| vocab[r].clone();
+        let queries = [
+            v(0),
+            v(1),
+            v(9),
+            v(99),
+            v(999),
+            v(9_999),
+            v(29_000),
+            "zzqxv".into(),
+            format!("{} {}", v(4), v(400)),
+            format!("{} {}", v(2000), v(3000)),
+            format!("\"{} {}\"", v(0), v(1)),
+            format!("\"{} {}\"", v(50), v(80)),
+            format!("\"{} {} {}\"", v(3), v(3), v(3)),
+            format!("{} {} {}", v(10), v(20), v(30)),
+            v(203),
+            v(5010),
+            format!("{} zzqxv", v(0)),
+            format!("{}*", v(12)),
+            format!("-{} NEAR {}", v(7), v(8)),
+            format!("\"{}", v(15)),
+        ];
+        let mut library = Vec::new();
+        let mut in_book = Vec::new();
+        for (i, q) in queries.iter().enumerate() {
+            let t = std::time::Instant::now();
+            let lib = search_library(&conn, q).unwrap();
+            library.push(t.elapsed().as_secs_f64() * 1000.0);
+            let t = std::time::Instant::now();
+            let book = search_book(&conn, ids[i * 5], q).unwrap();
+            in_book.push(t.elapsed().as_secs_f64() * 1000.0);
+            println!(
+                "{q:>28}: library {:>7.1} ms ({} books), book {:>7.1} ms ({} hits{})",
+                library[i],
+                lib.results.len(),
+                in_book[i],
+                book.groups.iter().map(|g| g.hits.len()).sum::<usize>(),
+                if book.truncated { ", truncated" } else { "" }
+            );
+        }
+        stats("search_library", library);
+        stats("search_book", in_book);
+    }
 }
