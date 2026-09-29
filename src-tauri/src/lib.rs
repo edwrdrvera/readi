@@ -4,6 +4,7 @@ mod library;
 mod model;
 mod prefs;
 mod protocol;
+mod watch;
 
 use jobs::{Jobs, LibraryEvent};
 use library::Library;
@@ -355,6 +356,7 @@ pub fn run() {
             );
             jobs.spawn_worker();
             app.manage(jobs);
+            app.manage(watch::start(app.handle().clone(), lib.clone()));
             app.manage(lib);
             app.manage(stats);
             Ok(())
@@ -362,8 +364,10 @@ pub fn run() {
         .register_asynchronous_uri_scheme_protocol("book", move |ctx, request, responder| {
             let lib = ctx.app_handle().state::<Arc<Library>>().inner().clone();
             let stats = protocol_stats.clone();
+            let app = ctx.app_handle().clone();
             tauri::async_runtime::spawn_blocking(move || {
-                responder.respond(protocol::handle(&lib, &stats, &request));
+                let rescan = || app.state::<watch::Scanner>().rescan();
+                responder.respond(protocol::handle(&lib, &stats, &request, &rescan));
             });
         })
         .invoke_handler(tauri::generate_handler![
@@ -400,6 +404,13 @@ pub fn run() {
             selftest_config,
             selftest_report,
             selftest_log,
+            watch::list_watched_folders,
+            watch::add_watched_folder,
+            watch::remove_watched_folder,
+            watch::set_folder_collection,
+            watch::rescan_watched_folders,
+            watch::list_exclusions,
+            watch::restore_exclusion,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
