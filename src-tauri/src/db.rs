@@ -253,6 +253,57 @@ pub fn managed_paths(conn: &Connection) -> Result<Vec<String>, String> {
     rows.collect::<Result<_, _>>().map_err(|e| e.to_string())
 }
 
+pub fn save_progress(conn: &Connection, id: i64, locator: &Locator, percent: f64) -> Result<i64, String> {
+    locator.validate()?;
+    let format: String = conn
+        .query_row("SELECT format FROM books WHERE id = ?1", [id], |r| r.get(0))
+        .map_err(|e| e.to_string())?;
+    if Format::parse(&format) != Some(locator.format()) {
+        return Err("locator format does not match book".into());
+    }
+    if !percent.is_finite() {
+        return Err("non-finite percent".into());
+    }
+    let t = now();
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    tx.execute(
+        "INSERT INTO progress (book_id, locator, percent, updated_at) VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(book_id) DO UPDATE SET locator = excluded.locator, percent = excluded.percent, updated_at = excluded.updated_at",
+        params![id, serde_json::to_string(locator).unwrap(), percent.clamp(0.0, 1.0), t],
+    )
+    .map_err(|e| e.to_string())?;
+    tx.execute(
+        "UPDATE books SET opened_at = ?2, reading_state = CASE reading_state WHEN 'unread' THEN 'reading' ELSE reading_state END WHERE id = ?1",
+        params![id, t],
+    )
+    .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(t)
+}
+
+pub fn get_progress(conn: &Connection, id: i64) -> Result<Option<Progress>, String> {
+    let row: Option<(String, f64, i64)> = conn
+        .query_row(
+            "SELECT locator, percent, updated_at FROM progress WHERE book_id = ?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+    Ok(row.and_then(|(l, percent, updated_at)| {
+        serde_json::from_str(&l).ok().map(|locator| Progress { locator, percent, updated_at })
+    }))
+}
+
+pub fn mark_opened(conn: &Connection, id: i64) -> Result<(), String> {
+    conn.execute(
+        "UPDATE books SET opened_at = ?2, reading_state = CASE reading_state WHEN 'unread' THEN 'reading' ELSE reading_state END WHERE id = ?1",
+        params![id, now()],
+    )
+    .map(|_| ())
+    .map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -261,6 +312,31 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let conn = open(&dir.path().join("t.sqlite")).unwrap();
         (dir, conn)
+    }
+
+    #[test]
+    fn progress_survives_reopen() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.sqlite");
+        let loc = Locator::Pdf { v: 1, page_index: 41, x: 12.0, y: 600.0 };
+        {
+            let conn = open(&path).unwrap();
+            let id = insert_managed_book(&conn, "abc", Format::Pdf, "t", 10, "abc.pdf").unwrap();
+            save_progress(&conn, id, &loc, 0.5).unwrap();
+        }
+        let conn = open(&path).unwrap();
+        let p = get_progress(&conn, 1).unwrap().unwrap();
+        assert_eq!(p.locator, loc);
+        assert_eq!(get_book(&conn, 1).unwrap().unwrap().reading_state, "reading");
+    }
+
+    #[test]
+    fn progress_rejects_mismatched_format() {
+        let (_d, conn) = fresh();
+        let id = insert_managed_book(&conn, "abc", Format::Pdf, "t", 10, "abc.pdf").unwrap();
+        let loc = Locator::Epub { v: 1, cfi: "epubcfi(/6/2)".into(), section_index: 0, section_fraction: 0.0 };
+        assert!(save_progress(&conn, id, &loc, 0.1).is_err());
+        assert!(get_progress(&conn, id).unwrap().is_none());
     }
 
     #[test]
