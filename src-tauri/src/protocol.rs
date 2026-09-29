@@ -3,11 +3,22 @@
 use crate::db;
 use crate::library::Library;
 use crate::model::Format;
+use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
+use std::sync::Mutex;
 use tauri::http::{header, Request, Response, StatusCode};
 
 pub const MAX_RANGE: u64 = 4 << 20;
 pub const MAX_WHOLE_EPUB: u64 = 512 << 20;
+
+#[derive(Default, serde::Serialize, Clone, Copy)]
+pub struct Stats {
+    pub requests: u64,
+    pub bytes: u64,
+}
+
+#[derive(Default)]
+pub struct TransportStats(pub Mutex<HashMap<i64, Stats>>);
 
 pub fn parse_range(value: &str, len: u64) -> Option<(u64, u64)> {
     let spec = value.strip_prefix("bytes=")?;
@@ -34,7 +45,7 @@ fn respond(status: StatusCode, body: Vec<u8>) -> Response<Vec<u8>> {
         .unwrap()
 }
 
-pub fn handle(lib: &Library, req: &Request<Vec<u8>>) -> Response<Vec<u8>> {
+pub fn handle(lib: &Library, stats: &TransportStats, req: &Request<Vec<u8>>) -> Response<Vec<u8>> {
     if req.method() == "OPTIONS" {
         return Response::builder()
             .status(StatusCode::NO_CONTENT)
@@ -72,6 +83,12 @@ pub fn handle(lib: &Library, req: &Request<Vec<u8>>) -> Response<Vec<u8>> {
     if file.seek(SeekFrom::Start(start)).and_then(|_| file.read_exact(&mut body)).is_err() {
         return respond(StatusCode::INTERNAL_SERVER_ERROR, vec![]);
     }
+    {
+        let mut s = stats.0.lock().unwrap();
+        let e = s.entry(id).or_default();
+        e.requests += 1;
+        e.bytes += body.len() as u64;
+    }
     Response::builder()
         .status(status)
         .header(header::CONTENT_TYPE, format.mime())
@@ -101,7 +118,7 @@ mod tests {
         if let Some(r) = range {
             b = b.header("Range", r);
         }
-        handle(lib, &b.body(vec![]).unwrap())
+        handle(lib, &TransportStats::default(), &b.body(vec![]).unwrap())
     }
 
     #[test]

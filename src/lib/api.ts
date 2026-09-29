@@ -26,4 +26,5 @@ export const bookUrl = (id: number) => `book://localhost/${id}`;
 export const api = {
   listBooks: () => invoke<BookSummary[]>("list_books"),
   importBooks: (paths: string[]) => invoke<ImportOutcome[]>("import_books", { paths }),
+  transportStats: (id: number) => invoke<{ requests: number; bytes: number }>("transport_stats", { id }),
 };
