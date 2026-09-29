@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { ALargeSmall, ChevronLeft, PanelLeft, Settings, Undo2 } from "lucide-react";
+import { ALargeSmall, BookmarkPlus, ChevronLeft, PanelLeft, Search, Settings, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import type { BookDetail } from "@/lib/api";
-import { closeSidebar, goBack, openSidebar } from "@/lib/commands";
+import { closeSidebar, goBack, openBookSearch, openSidebar } from "@/lib/commands";
 import { backHistory } from "@/lib/history";
 import type { PrefKey, Prefs } from "@/lib/prefs";
 import { useApp } from "@/lib/store";
@@ -30,7 +30,8 @@ export function ReaderChrome({ detail, prefs }: { detail: BookDetail; prefs: Pre
   const bookId = detail.book.id;
   const backSize = useSyncExternalStore(backHistory.subscribe, () => backHistory.size(bookId));
   const alwaysShow = useApp((s) => s.uiSettings.always_show_controls);
-  const held = aaOpen || settingsOpen || alwaysShow;
+  const selecting = useApp((s) => s.selection !== null || s.editingId !== null);
+  const held = aaOpen || settingsOpen || alwaysShow || selecting;
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -72,9 +73,9 @@ export function ReaderChrome({ detail, prefs }: { detail: BookDetail; prefs: Pre
       <Button
         variant="ghost"
         size="icon-sm"
-        aria-label="Contents"
+        aria-label="Sidebar"
         aria-pressed={sidebarOpen}
-        title="Contents (⌘\)"
+        title="Sidebar (⌘\)"
         onClick={(e) => (sidebarOpen ? closeSidebar() : openSidebar(e.currentTarget))}
       >
         <PanelLeft />
@@ -91,6 +92,19 @@ export function ReaderChrome({ detail, prefs }: { detail: BookDetail; prefs: Pre
           </Button>
         </span>
       )}
+      <Button variant="ghost" size="icon-sm" aria-label="Find in book" title="Find in Book (⌘F)" data-testid="search-open" onClick={(e) => openBookSearch(e.currentTarget)}>
+        <Search />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Add bookmark"
+        title="Add Bookmark (⌘D)"
+        data-testid="bookmark-add"
+        onClick={() => void useApp.getState().addBookmark()}
+      >
+        <BookmarkPlus />
+      </Button>
       <Popover open={aaOpen} onOpenChange={setAaOpen}>
         <PopoverTrigger asChild>
           <Button variant="ghost" size="icon-sm" aria-label="Appearance for this book">

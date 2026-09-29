@@ -1,7 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { Pin, PinOff, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import type { BookDetail, TocItem } from "@/lib/api";
 import { closeSidebar } from "@/lib/commands";
 import { useApp } from "@/lib/store";
@@ -26,9 +23,8 @@ function usePdfPage(enabled: boolean) {
   return page;
 }
 
-export function ContentsSidebar({ detail }: { detail: BookDetail }) {
-  const { open, pinned } = useApp((s) => s.sidebar);
-  const setSidebar = useApp((s) => s.setSidebar);
+export function ContentsTab({ detail }: { detail: BookDetail }) {
+  const open = useApp((s) => s.sidebar.open);
   const position = useApp((s) => s.position);
   const isPdf = detail.book.format === "pdf";
   const flat = useMemo(() => flatten(detail.toc), [detail.toc]);
@@ -49,8 +45,6 @@ export function ContentsSidebar({ detail }: { detail: BookDetail }) {
   useEffect(() => {
     if (open) document.querySelector<HTMLElement>("[data-toc-active]")?.scrollIntoView({ block: "nearest" });
   }, [open, active]);
-
-  if (!open) return null;
 
   const jump = async (target: string) => {
     const reader = activeReader();
@@ -90,27 +84,8 @@ export function ContentsSidebar({ detail }: { detail: BookDetail }) {
   );
 
   return (
-    <aside
-      aria-label="Contents"
-      className={cn(
-        "z-30 flex w-72 shrink-0 flex-col border-r bg-background",
-        pinned ? "relative" : "absolute inset-y-0 left-0 shadow-xl",
-      )}
-    >
-      <div className="flex items-center gap-1 border-b px-3 py-2">
-        <h2 className="flex-1 text-sm font-semibold">Contents</h2>
-        <Button variant="ghost" size="icon-sm" aria-pressed={pinned} aria-label={pinned ? "Unpin contents" : "Pin contents"} onClick={() => setSidebar({ pinned: !pinned })}>
-          {pinned ? <PinOff /> : <Pin />}
-        </Button>
-        <Button variant="ghost" size="icon-sm" aria-label="Close contents" onClick={closeSidebar}>
-          <X />
-        </Button>
-      </div>
-      <ScrollArea className="min-h-0 flex-1">
-        <nav className="p-2">
-          {flat.length === 0 ? <p className="p-2 text-sm text-muted-foreground">Contents appear once this book has been indexed.</p> : render(detail.toc, 0)}
-        </nav>
-      </ScrollArea>
-    </aside>
+    <nav className="p-2">
+      {flat.length === 0 ? <p className="p-2 text-sm text-muted-foreground">Contents appear once this book has been indexed.</p> : render(detail.toc, 0)}
+    </nav>
   );
 }
