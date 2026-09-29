@@ -175,9 +175,12 @@ const rtlChapters = Array.from({ length: 6 }, (_, i) => ({
 }))
 writeFileSync(join(out, 'rtl.epub'), epub({ title: 'ספר המפות', author: 'Readi Project', chapters: rtlChapters, lang: 'he', dir: 'rtl' }))
 
+// Raster pages with no text operators, for search and bookmarks on a PDF with no searchable text.
+writePdf(join(out, 'image.pdf'), { pages: [[], [], []], imageBytesPerPage: 30_000, title: 'Readi Image Fixture' })
+
 const manifest = {}
 // large.pdf is listed whenever it exists, so a run without --large keeps its entry.
-for (const f of ['typical.epub', 'hostile.epub', 'rtl.epub', 'text.pdf', 'large.pdf'].filter(f => existsSync(join(out, f)))) {
+for (const f of ['typical.epub', 'hostile.epub', 'rtl.epub', 'text.pdf', 'image.pdf', 'large.pdf'].filter(f => existsSync(join(out, f)))) {
   const p = join(out, f)
   manifest[f] = { bytes: statSync(p).size, sha256: createHash('sha256').update(readFileSync(p)).digest('hex') }
 }
