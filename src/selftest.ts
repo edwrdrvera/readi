@@ -52,9 +52,11 @@ async function pdfRendered(page: number) {
 async function first(fixtures: string[], sha: Record<string, string>) {
   const report: Record<string, unknown> = { phase: "first" };
   const importStart = performance.now();
-  const outcomes = await importPaths(fixtures);
+  const jobs = await importPaths(fixtures);
   report.importMs = Math.round(performance.now() - importStart);
-  report.imports = outcomes.map((o) => (o.status === "failed" ? o : { path: o.path, id: o.result.book.id }));
+  report.imports = jobs.map((j) =>
+    j.state === "done" ? { path: j.source_path, id: j.book_id } : { path: j.source_path, status: "failed", reason: j.error ?? j.state },
+  );
 
   const stopLag = lagMonitor();
   const extractStart = performance.now();
