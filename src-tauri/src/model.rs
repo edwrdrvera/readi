@@ -350,7 +350,6 @@ pub struct WatchedFolder {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Exclusion {
-    pub watched_folder_id: i64,
     pub folder_path: String,
     pub sha256: String,
     pub title: String,

@@ -30,6 +30,7 @@ export function BookCard({ book }: { book: BookSummary }) {
   const ref = useRef<HTMLLIElement>(null);
   const focused = useApp((s) => s.focusedBookId === book.id);
   const openBook = useApp((s) => s.openBook);
+  const focusBook = useApp((s) => s.focusBook);
   const loadLocations = useApp((s) => s.loadLocations);
   const author = book.authors[0] ?? "Unknown author";
   const loadForMenu = (open: boolean) => void (open && loadLocations(book.id).catch(() => {}));
@@ -45,6 +46,7 @@ export function BookCard({ book }: { book: BookSummary }) {
           <button
             className="flex flex-col gap-1.5 rounded-lg p-1.5 text-left outline-none group-data-[focused=true]:ring-2 group-data-[focused=true]:ring-ring hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
             onClick={() => void openBook(book.id)}
+            onFocus={() => focused || focusBook(book.id)}
             aria-label={`${book.title}, ${author}${book.available ? "" : ", missing"}`}
           >
             <div className={book.available ? "" : "opacity-50 grayscale"}>

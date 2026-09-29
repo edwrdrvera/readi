@@ -20,7 +20,8 @@ export function CommandPalette() {
   const books = useApp((s) => s.books);
   const collections = useApp((s) => s.collections);
   const view = useApp((s) => s.uiSettings.library);
-  const items = useMemo(() => (open ? paletteItems() : []), [open, screen, books, collections, view]);
+  const focused = useApp((s) => s.focusedBookId);
+  const items = useMemo(() => (open ? paletteItems() : []), [open, screen, books, collections, view, focused]);
   return (
     <CommandDialog
       open={open}

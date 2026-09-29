@@ -280,6 +280,26 @@ async function watchLive(m3: M3Config): Promise<Report> {
     return { booksAfterRescan: (await bookBySha(sha.exclude)).length, excluded: excl.some((e) => e.sha256 === sha.exclude) };
   });
 
+  await runStep(report, "exclusionReadd", async () => {
+    const folderA = (await api.listWatchedFolders()).find((f) => f.path === dirs.watchA);
+    if (!folderA) throw new Error("watchA is not a watched folder");
+    await api.removeWatchedFolder(folderA.id);
+    await s().addFolder(dirs.watchA);
+    const readded = await until("watchA rescanned", async () => {
+      const f = (await api.listWatchedFolders()).find((f) => f.path === dirs.watchA);
+      return f && f.id !== folderA.id && f.last_scan_at !== null && (await locationAt(sha.offRename, files.offRename))?.loc.availability === "available" ? f : null;
+    }, 60_000);
+    await api.rescanWatchedFolders();
+    await until("rescan after re-add", async () => ((await api.listWatchedFolders()).find((f) => f.id === readded.id)?.last_scan_at ?? 0) > readded.last_scan_at!, 30_000);
+    await sleep(500);
+    const excl = await api.listExclusions();
+    return {
+      newFolderId: readded.id !== folderA.id,
+      booksAfterRescan: (await bookBySha(sha.exclude)).length,
+      excluded: excl.some((e) => e.sha256 === sha.exclude && e.folder_path === dirs.watchA),
+    };
+  });
+
   await runStep(report, "organize", async () => {
     await s().createCollection("M3 Picks", [ids.dup, ids.explicit]);
     const pick = s().collections.find((c) => c.name === "M3 Picks");
@@ -316,6 +336,32 @@ async function watchLive(m3: M3Config): Promise<Report> {
     const runs = (commandRuns["book.finished"] ?? 0) - before;
     await s().closeBook();
     return { opened, selected: selected.dataset.commandId, runs, finished, closed };
+  });
+
+  await runStep(report, "paletteLibrary", async () => {
+    const id = ids.dup;
+    await until("library screen", () => s().screen.name === "library", 5000);
+    const card = await until("dup card button", () => document.querySelector<HTMLButtonElement>(`[data-book-id="${id}"] button`), 5000);
+    card.focus();
+    const focused = await until("card focused", () => s().focusedBookId === id, 3000).catch(() => false);
+    const statesBefore = new Map((await books()).map((b) => [b.id, b.reading_state]));
+    const before = commandRuns["book.finished"] ?? 0;
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
+    const input = await until("palette input", () => document.querySelector<HTMLInputElement>("[cmdk-input]"), 5000);
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    setValue.call(input, "Mark as Finished");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    const selected = await until("Mark as Finished selected", () => {
+      const el = document.querySelector<HTMLElement>('[cmdk-item][data-selected="true"]');
+      return el?.dataset.commandId === "book.finished" ? el : null;
+    }, 5000);
+    const label = selected.textContent ?? "";
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    const finished = await until("focused book finished", async () => (await books()).find((b) => b.id === id)?.reading_state === "finished", 5000).catch(() => false);
+    await until("palette closed", () => !s().paletteOpen, 3000).catch(() => false);
+    const changed = (await books()).filter((b) => statesBefore.get(b.id) !== b.reading_state).map((b) => b.id);
+    const runs = (commandRuns["book.finished"] ?? 0) - before;
+    return { focused, label, namesBook: label.includes(`: ${(await books()).find((b) => b.id === id)?.title}`), runs, finished, changed, expected: [id] };
   });
 
   report.ok = true;

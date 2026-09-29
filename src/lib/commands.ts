@@ -9,6 +9,8 @@ export interface CommandContext {
   screen: "library" | "reader";
   format: Format | null;
   bookId: number | null;
+  /** The book that book actions apply to: the open book in the reader, the focused card in the Library. */
+  targetBookId: number | null;
   /** The open book's reader, once it has registered. */
   reader: ReaderHandle | null;
   prefs: Prefs;
@@ -47,6 +49,7 @@ export function commandContext(): CommandContext {
     screen: s.screen.name,
     format: detail?.book.format ?? null,
     bookId: detail?.book.id ?? null,
+    targetBookId: detail?.book.id ?? (s.screen.name === "library" && s.books.some((b) => b.id === s.focusedBookId) ? s.focusedBookId : null),
     reader: detail && reader?.bookId === detail.book.id ? reader : null,
     prefs: resolvePrefs(s.defaults, s.overrides),
   };
@@ -209,17 +212,18 @@ export function paletteCommands(ctx: CommandContext): Command[] {
   const s = useApp.getState();
   const out: Command[] = [];
   const manual = s.collections.filter((c) => c.kind === "manual");
-  if (ctx.bookId !== null) {
-    const id = ctx.bookId;
+  if (ctx.targetBookId !== null) {
+    const id = ctx.targetBookId;
     const book = s.books.find((b) => b.id === id) ?? (s.screen.name === "reader" ? s.screen.detail.book : null);
-    if (book?.reading_state !== "finished") out.push(dynamic("book.finished", "Mark as Finished", () => s.setReadingState(id, "finished")));
-    if (book?.reading_state !== "unread") out.push(dynamic("book.unread", "Mark as Unread", () => s.setReadingState(id, "unread")));
+    const label = (action: string) => (ctx.screen === "library" && book ? `${action}: ${book.title}` : action);
+    if (book?.reading_state !== "finished") out.push(dynamic("book.finished", label("Mark as Finished"), () => s.setReadingState(id, "finished")));
+    if (book?.reading_state !== "unread") out.push(dynamic("book.unread", label("Mark as Unread"), () => s.setReadingState(id, "unread")));
     for (const c of manual) {
       const member = book?.collection_ids.includes(c.id) ?? false;
       out.push(
         member
-          ? dynamic(`collection.remove.${c.id}`, `Remove from ${c.name}`, () => s.setMembership(c.id, [id], false))
-          : dynamic(`collection.add.${c.id}`, `Add to ${c.name}`, () => s.setMembership(c.id, [id], true)),
+          ? dynamic(`collection.remove.${c.id}`, label(`Remove from ${c.name}`), () => s.setMembership(c.id, [id], false))
+          : dynamic(`collection.add.${c.id}`, label(`Add to ${c.name}`), () => s.setMembership(c.id, [id], true)),
       );
     }
   }

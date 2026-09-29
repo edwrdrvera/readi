@@ -136,6 +136,18 @@ CREATE TABLE import_jobs (
   started_at INTEGER,
   finished_at INTEGER
 );
+"#, r#"
+CREATE TABLE watched_exclusions_new (
+  folder_path TEXT NOT NULL,
+  sha256 TEXT NOT NULL,
+  title TEXT NOT NULL DEFAULT '',
+  excluded_at INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (folder_path, sha256)
+);
+INSERT INTO watched_exclusions_new (folder_path, sha256, title, excluded_at)
+  SELECT f.path, e.sha256, e.title, e.excluded_at FROM watched_exclusions e JOIN watched_folders f ON f.id = e.watched_folder_id;
+DROP TABLE watched_exclusions;
+ALTER TABLE watched_exclusions_new RENAME TO watched_exclusions;
 "#];
 
 pub fn now() -> i64 {
@@ -363,8 +375,9 @@ pub fn delete_unavailable_watched(tx: &Connection, id: i64, keep: i64) -> Result
 /// deletes the book; cascades remove its locations and reading data.
 pub fn delete_book_with_exclusions(tx: &Connection, id: i64) -> Result<(), String> {
     tx.execute(
-        "INSERT INTO watched_exclusions (watched_folder_id, sha256, title, excluded_at)
-         SELECT DISTINCT l.watched_folder_id, b.sha256, b.title, ?2 FROM book_locations l JOIN books b ON b.id = l.book_id
+        "INSERT INTO watched_exclusions (folder_path, sha256, title, excluded_at)
+         SELECT DISTINCT f.path, b.sha256, b.title, ?2 FROM book_locations l JOIN books b ON b.id = l.book_id
+         JOIN watched_folders f ON f.id = l.watched_folder_id
          WHERE l.book_id = ?1 AND l.kind = 'watched' AND l.watched_folder_id IS NOT NULL
          ON CONFLICT DO NOTHING",
         params![id, now()],
@@ -740,6 +753,35 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let conn = open(&dir.path().join("t.sqlite")).unwrap();
         (dir, conn)
+    }
+
+    #[test]
+    fn v3_exclusions_migrate_to_folder_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.sqlite");
+        {
+            let conn = Connection::open(&path).unwrap();
+            for (i, sql) in MIGRATIONS[..3].iter().enumerate() {
+                conn.execute_batch(sql).unwrap();
+                conn.pragma_update(None, "user_version", i + 1).unwrap();
+            }
+            conn.execute("INSERT INTO watched_folders (id, path) VALUES (7, '/w/a')", []).unwrap();
+            conn.execute(
+                "INSERT INTO watched_exclusions (watched_folder_id, sha256, title, excluded_at) VALUES (7, 'abc', 'Book', 42)",
+                [],
+            )
+            .unwrap();
+        }
+        let conn = open(&path).unwrap();
+        let row: (String, String, String, i64) = conn
+            .query_row("SELECT folder_path, sha256, title, excluded_at FROM watched_exclusions", [], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+            })
+            .unwrap();
+        assert_eq!(row, ("/w/a".into(), "abc".into(), "Book".into(), 42));
+        conn.execute("DELETE FROM watched_folders WHERE id = 7", []).unwrap();
+        let n: i64 = conn.query_row("SELECT count(*) FROM watched_exclusions", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 1);
     }
 
     #[test]
