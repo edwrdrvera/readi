@@ -1,3 +1,4 @@
+mod db;
 mod model;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
