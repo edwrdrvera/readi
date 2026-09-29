@@ -1,8 +1,11 @@
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { api, type BookSummary } from "./lib/api";
 import { useApp } from "./lib/store";
 import { importPaths } from "./lib/importing";
-import { activeReader } from "./reader/handle";
+import { activeReader, type ReaderHandle } from "./reader/handle";
+import { goBack } from "./lib/commands";
+import { THEME_COLORS, type PrefKey, type Prefs } from "./lib/prefs";
+import type { Locator } from "./lib/api";
 
 // Drives the packaged app when READI_SELFTEST is set. scripts/packaged-check.mjs
 // runs the "first" phase, force-kills the app, then runs "restore".
@@ -137,7 +140,9 @@ async function first(fixtures: string[], sha: Record<string, string>) {
     await pdfRendered(17);
     await reader.flush();
     report.textPdf = { saved: reader.location() };
+    await useApp.getState().setOverride("theme", "dark");
   }
+  await useApp.getState().setDefault("theme", "sepia");
 
   await activeReader()?.flush();
   await useApp.getState().closeBook();
@@ -151,12 +156,22 @@ async function restore(sha: Record<string, string>) {
   const typical = byName(books, sha, "typical.epub");
   const large = byName(books, sha, "large.pdf");
   const text = byName(books, sha, "text.pdf");
+  const rtl = byName(books, sha, "rtl.epub");
+  const theme: Record<string, unknown> = {};
+  report.theme = theme;
+  theme.defaults = (await api.getPrefs()).defaults.theme;
+  theme.library = await until("library theme", () => (document.documentElement.dataset.theme === "sepia" ? "sepia" : null), 10_000).catch(
+    () => document.documentElement.dataset.theme,
+  );
 
   {
     const detail = await api.openBook(typical.id);
     const { reader, openMs } = await openAndWait(typical.id);
     await sleep(300);
     report.epub = { openMs, stored: detail.progress?.locator, restored: reader.location() };
+    const body = reader.documents?.()[0]?.body;
+    theme.epubBodyColor = body ? getComputedStyle(body).color : null;
+    theme.sepiaFg = hexToRgb(THEME_COLORS.sepia.fg);
   }
   for (const [key, book] of [["largePdf", large], ["textPdf", text]] as const) {
     const detail = await api.openBook(book.id);
@@ -166,11 +181,205 @@ async function restore(sha: Record<string, string>) {
     await pdfRendered(page);
     const restored = reader.location();
     report[key] = { openMs, stored, restoredPage: restored?.format === "pdf" ? restored.page_index : null };
+    if (book === text) {
+      theme.textPdf = document.documentElement.dataset.theme;
+      await useApp.getState().resetOverrides();
+      await sleep(100);
+      theme.textPdfAfterReset = document.documentElement.dataset.theme;
+      theme.textPdfOverridesAfterReset = (await api.getPrefs(text.id)).overrides;
+    }
   }
   report.readingStates = (await api.listBooks()).map((b) => `${b.title}: ${b.reading_state}`);
   await useApp.getState().closeBook();
+  report.epubLayout = await epubLayoutRestore(typical.id);
+  report.pdfLayout = await pdfLayoutRestore(text.id);
+  report.rtl = await rtlOrder(rtl.id);
+  report.approximate = await approximateRestore(typical.id);
+  report.scrollSave = await verticalScrollSave(typical.id);
+  report.back = await backHistoryCheck(typical.id);
+  await useApp.getState().closeBook();
   report.ok = true;
   return report;
+}
+
+function hexToRgb(hex: string) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgb(${n >> 16}, ${(n >> 8) & 255}, ${n & 255})`;
+}
+
+async function applyPref<K extends PrefKey>(reader: ReaderHandle, key: K, value: Prefs[K] | null) {
+  await useApp.getState().setOverride(key, value);
+  await reader.settled();
+}
+
+async function resizedVisible(reader: ReaderHandle, anchor: string) {
+  const win = getCurrentWindow();
+  const original = await win.innerSize();
+  const logical = original.toLogical(await win.scaleFactor());
+  await win.setSize(new LogicalSize(Math.round(logical.width * 0.75), Math.round(logical.height * 0.8)));
+  await sleep(300);
+  await reader.settled();
+  const resized = await win.innerSize();
+  const visible = reader.isVisible(anchor);
+  await win.setSize(original);
+  await sleep(300);
+  await reader.settled();
+  return { visible, from: `${original.width}x${original.height}`, to: `${resized.width}x${resized.height}` };
+}
+
+async function epubLayoutRestore(id: number) {
+  const { reader } = await openAndWait(id);
+  await applyPref(reader, "reading_mode", "horizontal");
+  await reader.goTo(4);
+  await reader.next();
+  await reader.next();
+  await reader.settled();
+  const anchor = reader.anchor();
+  const steps: Array<[string, () => Promise<void>]> = [
+    ["horizontalToVertical", () => applyPref(reader, "reading_mode", "vertical")],
+    ["verticalToHorizontal", () => applyPref(reader, "reading_mode", "horizontal")],
+    ["singleToDouble", () => applyPref(reader, "spread", "double")],
+    ["fontSerif", () => applyPref(reader, "font_family", "serif")],
+    ["fontSizePlus2", async () => {
+      await applyPref(reader, "font_size", 20);
+      await applyPref(reader, "font_size", 22);
+    }],
+    ["lineHeight", () => applyPref(reader, "line_height", 1.9)],
+  ];
+  const results: Record<string, unknown> = { anchor };
+  for (const [name, run] of steps) {
+    await run();
+    results[name] = reader.isVisible(anchor);
+  }
+  results.windowResize = await resizedVisible(reader, anchor);
+  await useApp.getState().resetOverrides();
+  await reader.settled();
+  await useApp.getState().closeBook();
+  return results;
+}
+
+async function pdfLayoutRestore(id: number) {
+  const { reader } = await openAndWait(id);
+  await applyPref(reader, "reading_mode", "vertical");
+  await applyPref(reader, "pdf_zoom", "fit-width");
+  await reader.goTo(5);
+  for (let i = 0; i < 3; i++) reader.scrollBy(1);
+  await sleep(300);
+  await reader.settled();
+  const anchor = reader.anchor();
+  const results: Record<string, unknown> = { anchor, anchorMidPage: !/@-?\d+,0$/.test(anchor) && anchor !== "" };
+  const steps: Array<[string, () => Promise<void>]> = [
+    ["zoom2", () => applyPref(reader, "pdf_zoom", 2)],
+    ["zoomFitPage", () => applyPref(reader, "pdf_zoom", "fit-page")],
+    ["zoomFitWidth", () => applyPref(reader, "pdf_zoom", "fit-width")],
+    ["verticalToHorizontal", () => applyPref(reader, "reading_mode", "horizontal")],
+    ["horizontalToVertical", () => applyPref(reader, "reading_mode", "vertical")],
+  ];
+  for (const [name, run] of steps) {
+    await run();
+    results[name] = { visible: reader.isVisible(anchor), now: reader.anchor() };
+  }
+  results.windowResize = await resizedVisible(reader, anchor);
+  await useApp.getState().resetOverrides();
+  await reader.settled();
+  await useApp.getState().closeBook();
+  return results;
+}
+
+const order = (l: Locator | null) => (l?.format === "epub" ? l.section_index + Math.min(l.section_fraction, 0.999) : -1);
+
+async function moved(reader: ReaderHandle, from: Locator | null, act: () => unknown) {
+  const before = JSON.stringify(from);
+  await act();
+  await until("relocate", () => JSON.stringify(reader.location()) !== before, 5000).catch(() => null);
+  await sleep(200);
+  return reader.location();
+}
+
+async function rtlOrder(id: number) {
+  const { reader } = await openAndWait(id);
+  const results: Record<string, unknown> = { dir: reader.dir() };
+  for (const spread of ["single", "double"] as const) {
+    await applyPref(reader, "spread", spread);
+    await reader.goTo(1);
+    await sleep(300);
+    const start = reader.location();
+    const left = await moved(reader, start, () => reader.goLeft());
+    const right = await moved(reader, left, () => reader.goRight());
+    const key = await moved(reader, right, () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft" })));
+    results[spread] = {
+      start: order(start),
+      afterGoLeft: order(left),
+      afterGoRight: order(right),
+      afterArrowLeft: order(key),
+    };
+  }
+  await useApp.getState().resetOverrides();
+  await useApp.getState().closeBook();
+  return results;
+}
+
+async function approximateRestore(id: number) {
+  const bogus: Locator = { format: "epub", v: 1, cfi: "epubcfi(/6/999!/4/2/1:0)", section_index: 3, section_fraction: 0.4 };
+  await api.saveProgress(id, bogus, 0.5);
+  const { reader } = await openAndWait(id);
+  await sleep(300);
+  const loc = reader.location();
+  const notices = useApp.getState().notices;
+  await useApp.getState().closeBook();
+  return { section: loc?.format === "epub" ? loc.section_index : null, notices };
+}
+
+async function verticalScrollSave(id: number) {
+  const { reader } = await openAndWait(id);
+  await applyPref(reader, "reading_mode", "vertical");
+  await reader.goTo(2);
+  await reader.settled();
+  await reader.flush();
+  await sleep(1000);
+  const initial = JSON.stringify((await api.openBook(id)).progress?.locator);
+  const start = performance.now();
+  let firstSaveMs: number | null = null;
+  let scroller = reader.documents?.()[0]?.defaultView?.frameElement?.parentElement ?? null;
+  while (scroller && scroller.scrollHeight <= scroller.clientHeight + 1) scroller = scroller.parentElement;
+  const scrollStart = scroller?.scrollTop ?? null;
+  const scroll = setInterval(() => scroller && (scroller.scrollTop += 10), 50);
+  while (performance.now() - start < 3000) {
+    await sleep(100);
+    if (firstSaveMs === null && JSON.stringify((await api.openBook(id)).progress?.locator) !== initial) {
+      firstSaveMs = Math.round(performance.now() - start);
+    }
+  }
+  clearInterval(scroll);
+  const scrolledPx = scroller && scrollStart !== null ? scroller.scrollTop - scrollStart : null;
+  await useApp.getState().resetOverrides();
+  await useApp.getState().closeBook();
+  return { firstSaveMs, scrolledPx };
+}
+
+async function backHistoryCheck(id: number) {
+  const { reader } = await openAndWait(id);
+  await reader.goTo(1);
+  await reader.next();
+  await sleep(300);
+  const before = reader.location();
+  const anchor = reader.anchor();
+  const toc = (await api.openBook(id)).toc;
+  await reader.goTo(toc[toc.length - 1].target);
+  await sleep(300);
+  const jumped = reader.location();
+  await goBack();
+  await sleep(300);
+  const after = reader.location();
+  const anchorVisible = reader.isVisible(anchor);
+  await useApp.getState().closeBook();
+  return {
+    jumpedAway: JSON.stringify(jumped) !== JSON.stringify(before),
+    cfiRestored: before?.format === "epub" && after?.format === "epub" && after.cfi === before.cfi,
+    anchorVisible,
+    before,
+    after,
+  };
 }
 
 export async function runSelfTestIfEnabled() {
