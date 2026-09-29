@@ -258,16 +258,28 @@ async function epubLayoutRestore(id: number) {
   return results;
 }
 
+function pdfProbe(reader: ReaderHandle) {
+  const sc = document.querySelector<HTMLElement>(".pdf-scroller");
+  return {
+    at: reader.anchor(),
+    vis: document.visibilityState,
+    scroll: sc ? `${Math.round(sc.scrollTop)}/${sc.scrollHeight}/${sc.clientWidth}x${sc.clientHeight}` : null,
+    mode: document.querySelector<HTMLElement>(".pdf-host")?.dataset.mode,
+  };
+}
+
 async function pdfLayoutRestore(id: number) {
   const { reader } = await openAndWait(id);
   await applyPref(reader, "reading_mode", "vertical");
   await applyPref(reader, "pdf_zoom", "fit-width");
   await reader.goTo(5);
+  const pageTop = reader.anchor();
+  const afterGoTo = pdfProbe(reader);
   for (let i = 0; i < 3; i++) reader.scrollBy(1);
   await sleep(300);
   await reader.settled();
   const anchor = reader.anchor();
-  const results: Record<string, unknown> = { anchor, anchorMidPage: !/@-?\d+,0$/.test(anchor) && anchor !== "" };
+  const results: Record<string, unknown> = { anchor, afterGoTo, afterScroll: pdfProbe(reader), anchorMidPage: anchor.startsWith("p5@") && anchor !== pageTop };
   const steps: Array<[string, () => Promise<void>]> = [
     ["zoom2", () => applyPref(reader, "pdf_zoom", 2)],
     ["zoomFitPage", () => applyPref(reader, "pdf_zoom", "fit-page")],
@@ -277,7 +289,7 @@ async function pdfLayoutRestore(id: number) {
   ];
   for (const [name, run] of steps) {
     await run();
-    results[name] = { visible: reader.isVisible(anchor), now: reader.anchor() };
+    results[name] = { visible: reader.isVisible(anchor), ...pdfProbe(reader) };
   }
   results.windowResize = await resizedVisible(reader, anchor);
   await useApp.getState().resetOverrides();
@@ -351,10 +363,11 @@ async function verticalScrollSave(id: number) {
     }
   }
   clearInterval(scroll);
+  const endLoc = reader.location();
   const scrolledPx = scroller && scrollStart !== null ? scroller.scrollTop - scrollStart : null;
   await useApp.getState().resetOverrides();
   await useApp.getState().closeBook();
-  return { firstSaveMs, scrolledPx };
+  return { firstSaveMs, scrolledPx, vis: document.visibilityState, endLoc };
 }
 
 async function backHistoryCheck(id: number) {
