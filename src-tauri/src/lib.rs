@@ -1,6 +1,7 @@
 mod db;
 mod library;
 mod model;
+mod prefs;
 mod protocol;
 
 use library::Library;
@@ -98,6 +99,33 @@ fn count_text_matches(lib: Lib, id: i64, word: String) -> Result<i64, String> {
     db::search_count(&lib.conn.lock().unwrap(), id, &word)
 }
 
+#[tauri::command]
+fn get_prefs(lib: Lib, book_id: Option<i64>) -> Result<prefs::PrefsState, String> {
+    let conn = lib.conn.lock().unwrap();
+    Ok(prefs::PrefsState {
+        defaults: prefs::get_defaults(&conn)?,
+        overrides: match book_id {
+            Some(id) => prefs::get_overrides(&conn, id)?,
+            None => prefs::Overrides::default(),
+        },
+    })
+}
+
+#[tauri::command]
+fn set_default_prefs(lib: Lib, prefs: prefs::Prefs) -> Result<(), String> {
+    prefs::set_defaults(&lib.conn.lock().unwrap(), &prefs)
+}
+
+#[tauri::command]
+fn set_book_pref(lib: Lib, book_id: i64, key: prefs::PrefKey, value: serde_json::Value) -> Result<(), String> {
+    prefs::set_book_pref(&lib.conn.lock().unwrap(), book_id, key, value)
+}
+
+#[tauri::command]
+fn reset_book_prefs(lib: Lib, book_id: i64) -> Result<(), String> {
+    prefs::reset_book_prefs(&lib.conn.lock().unwrap(), book_id)
+}
+
 /// Packaged-app self test, enabled only when READI_SELFTEST names a report path.
 #[derive(Serialize)]
 struct SelfTestConfig {
@@ -175,6 +203,10 @@ pub fn run() {
             fail_extraction,
             transport_stats,
             count_text_matches,
+            get_prefs,
+            set_default_prefs,
+            set_book_pref,
+            reset_book_prefs,
             selftest_config,
             selftest_report,
             selftest_log,
