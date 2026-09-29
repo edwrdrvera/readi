@@ -220,6 +220,14 @@ pub fn insert_managed_book(
     Ok(id)
 }
 
+pub fn managed_paths(conn: &Connection) -> Result<Vec<String>, String> {
+    let mut stmt = conn
+        .prepare("SELECT path FROM book_locations WHERE kind = 'managed'")
+        .map_err(|e| e.to_string())?;
+    let rows = stmt.query_map([], |r| r.get(0)).map_err(|e| e.to_string())?;
+    rows.collect::<Result<_, _>>().map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

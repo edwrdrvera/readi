@@ -18,11 +18,29 @@ impl Library {
         fs::create_dir_all(root.join(".staging")).map_err(|e| e.to_string())?;
         let conn = db::open(&data_dir.join("readi.sqlite"))?;
         let lib = Self { root, conn: Mutex::new(conn) };
+        lib.reconcile()?;
         Ok(lib)
     }
 
     pub fn resolve(&self, kind: &str, path: &str) -> PathBuf {
         if kind == "managed" { self.root.join(path) } else { PathBuf::from(path) }
+    }
+
+    /// Removes staging leftovers and managed files no record points to,
+    /// which is what an interrupted import leaves behind.
+    fn reconcile(&self) -> Result<(), String> {
+        for entry in fs::read_dir(self.root.join(".staging")).map_err(|e| e.to_string())?.flatten() {
+            let _ = fs::remove_file(entry.path());
+        }
+        let known: std::collections::HashSet<String> =
+            db::managed_paths(&self.conn.lock().unwrap())?.into_iter().collect();
+        for entry in fs::read_dir(&self.root).map_err(|e| e.to_string())?.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if entry.path().is_file() && !known.contains(&name) {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
+        Ok(())
     }
 
     pub fn import(&self, src: &Path) -> Result<ImportResult, String> {
@@ -114,5 +132,23 @@ mod tests {
         fs::write(&fake, b"not a zip").unwrap();
         assert!(lib.import(&fake).is_err());
         assert_eq!(fs::read_dir(lib.root.join(".staging")).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn reconcile_removes_orphans_but_keeps_referenced_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("a.pdf");
+        fs::write(&src, b"%PDF-1.4").unwrap();
+        let kept = {
+            let lib = Library::open(dir.path()).unwrap();
+            let r = lib.import(&src).unwrap();
+            fs::write(lib.root.join("orphan.pdf"), b"x").unwrap();
+            fs::write(lib.root.join(".staging/partial"), b"x").unwrap();
+            lib.root.join(format!("{}.pdf", r.book.sha256))
+        };
+        let lib = Library::open(dir.path()).unwrap();
+        assert!(kept.exists());
+        assert!(!lib.root.join("orphan.pdf").exists());
+        assert!(!lib.root.join(".staging/partial").exists());
     }
 }
