@@ -98,6 +98,47 @@ fn count_text_matches(lib: Lib, id: i64, word: String) -> Result<i64, String> {
     db::search_count(&lib.conn.lock().unwrap(), id, &word)
 }
 
+/// Packaged-app self test, enabled only when READI_SELFTEST names a report path.
+#[derive(Serialize)]
+struct SelfTestConfig {
+    phase: String,
+    fixtures: Vec<String>,
+    sha256: serde_json::Value,
+}
+
+#[tauri::command]
+fn selftest_config() -> Option<SelfTestConfig> {
+    std::env::var("READI_SELFTEST").ok()?;
+    Some(SelfTestConfig {
+        phase: std::env::var("READI_SELFTEST_PHASE").unwrap_or_else(|_| "first".into()),
+        fixtures: std::env::var("READI_SELFTEST_FIXTURES")
+            .unwrap_or_default()
+            .split(':')
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .collect(),
+        sha256: std::env::var("READI_SELFTEST_SHA").ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default(),
+    })
+}
+
+#[tauri::command]
+fn selftest_log(line: String) {
+    use std::io::Write;
+    if let Ok(path) = std::env::var("READI_SELFTEST") {
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(format!("{path}.log")) {
+            let _ = writeln!(f, "{} {line}", db::now());
+        }
+    }
+}
+
+#[tauri::command]
+fn selftest_report(report: serde_json::Value) -> Result<(), String> {
+    let path = std::env::var("READI_SELFTEST").map_err(|_| "self test disabled")?;
+    let tmp = format!("{path}.tmp");
+    std::fs::write(&tmp, serde_json::to_vec_pretty(&report).unwrap()).map_err(|e| e.to_string())?;
+    std::fs::rename(tmp, path).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let stats = Arc::new(TransportStats::default());
@@ -134,6 +175,9 @@ pub fn run() {
             fail_extraction,
             transport_stats,
             count_text_matches,
+            selftest_config,
+            selftest_report,
+            selftest_log,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
