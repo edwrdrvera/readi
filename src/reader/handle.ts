@@ -74,12 +74,3 @@ export const setActiveReader = (h: ReaderHandle | null) => {
 };
 export const activeReader = () => active;
 
-/** Placeholder until each reader implements search jumps and annotations. Delete once unused. */
-export const annotationsPending = {
-  showHit: async () => "approximate" as const,
-  showAnnotation: async () => "approximate" as const,
-  onSelection: () => () => {},
-  clearSelection: () => {},
-  bookmark: () => null,
-  setAnnotations: async () => [],
-} satisfies Pick<ReaderHandle, "showHit" | "showAnnotation" | "onSelection" | "clearSelection" | "bookmark" | "setAnnotations">;
