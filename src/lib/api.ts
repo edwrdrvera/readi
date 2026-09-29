@@ -50,6 +50,12 @@ export interface ExtractedMetadata {
   toc: TocItem[];
 }
 
+export interface TextSegment {
+  order: number;
+  label: string | null;
+  text: string;
+}
+
 export const bookUrl = (id: number) => `book://localhost/${id}`;
 
 export const api = {
@@ -61,6 +67,8 @@ export const api = {
   claimExtractionJob: (reclaimStale: boolean) =>
     invoke<BookSummary | null>("claim_extraction_job", { reclaimStale }),
   submitMetadata: (id: number, metadata: ExtractedMetadata) => invoke<void>("submit_metadata", { id, metadata }),
+  submitText: (id: number, extractorVersion: number, segments: TextSegment[]) =>
+    invoke<IndexState>("submit_text", { id, extractorVersion, segments }),
   failExtraction: (id: number, error: string) => invoke<void>("fail_extraction", { id, error }),
   transportStats: (id: number) => invoke<{ requests: number; bytes: number }>("transport_stats", { id }),
 };

@@ -1,9 +1,10 @@
 import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.mjs?url";
-import { bookUrl, type ExtractedMetadata, type TocItem } from "../lib/api";
+import { bookUrl, type ExtractedMetadata, type TextSegment, type TocItem } from "../lib/api";
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
+export const PDF_EXTRACTOR_VERSION = 1;
 const MAX_REQUEST = 4 << 20; // matches the book:// protocol cap
 
 /**
@@ -101,4 +102,43 @@ export async function pdfMetadata(doc: PdfDoc): Promise<ExtractedMetadata> {
     language: str(info.Language),
     toc,
   };
+}
+
+/**
+ * PDF.js's getTextContent() uses `for await` over a ReadableStream, which
+ * WKWebView does not support (TypeError: undefined is not a function), so
+ * read the text stream with an explicit reader.
+ */
+async function readTextItems(page: pdfjs.PDFPageProxy): Promise<string[]> {
+  const reader = page.streamTextContent().getReader();
+  const out: string[] = [];
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) return out;
+    for (const it of (value as { items: Array<{ str?: string }> }).items) out.push(it.str ?? "");
+  }
+}
+
+// PDF.js keeps every fetched chunk until its document is destroyed, and text
+// extraction fetches whole image XObjects, so a long PDF is extracted through
+// a fresh document every PAGES_PER_DOCUMENT pages to bound memory.
+const PAGES_PER_DOCUMENT = 50;
+
+export async function pdfText(id: number, length: number, numPages: number, signal?: AbortSignal): Promise<TextSegment[]> {
+  const segments: TextSegment[] = [];
+  for (let first = 0; first < numPages; first += PAGES_PER_DOCUMENT) {
+    const task = loadPdf(id, length);
+    try {
+      const doc = await task.promise;
+      for (let i = first; i < Math.min(numPages, first + PAGES_PER_DOCUMENT); i++) {
+        signal?.throwIfAborted();
+        const page = await doc.getPage(i + 1);
+        segments.push({ order: i, label: null, text: (await readTextItems(page)).join(" ") });
+        page.cleanup();
+      }
+    } finally {
+      await task.destroy();
+    }
+  }
+  return segments;
 }

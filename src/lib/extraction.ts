@@ -1,6 +1,6 @@
 import { api, type BookSummary } from "./api";
-import { epubMetadata, loadEpub } from "../adapters/epub";
-import { loadPdf, pdfMetadata } from "../adapters/pdf";
+import { epubMetadata, epubText, loadEpub, EPUB_EXTRACTOR_VERSION } from "../adapters/epub";
+import { loadPdf, pdfMetadata, pdfText, PDF_EXTRACTOR_VERSION } from "../adapters/pdf";
 
 type Listener = () => void;
 
@@ -50,14 +50,21 @@ class ExtractionQueue {
     if (book.format === "epub") {
       const epub = await loadEpub(book.id);
       await api.submitMetadata(book.id, await epubMetadata(epub));
+      this.emit();
+      await api.submitText(book.id, EPUB_EXTRACTOR_VERSION, await epubText(epub));
       epub.destroy?.();
     } else {
       const task = loadPdf(book.id, book.file_size);
+      let numPages: number;
       try {
-        await api.submitMetadata(book.id, await pdfMetadata(await task.promise));
+        const doc = await task.promise;
+        numPages = doc.numPages;
+        await api.submitMetadata(book.id, await pdfMetadata(doc));
       } finally {
         await task.destroy();
       }
+      this.emit();
+      await api.submitText(book.id, PDF_EXTRACTOR_VERSION, await pdfText(book.id, book.file_size, numPages));
     }
   }
 }
