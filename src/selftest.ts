@@ -180,6 +180,11 @@ export async function runSelfTestIfEnabled() {
   // WebKit pauses requestAnimationFrame, which PDF.js rendering waits on, while
   // the window is occluded; a spawned test process starts behind other windows.
   await getCurrentWindow().setFocus();
+  // setFocus does not help when the window opens on another Space, so frames
+  // are driven by timers whenever WebKit reports the page hidden.
+  const raf = window.requestAnimationFrame.bind(window);
+  window.requestAnimationFrame = (cb) =>
+    document.visibilityState === "hidden" ? (setTimeout(() => cb(performance.now()), 16) as unknown as number) : raf(cb);
   addEventListener("error", (e) => void api.selftestLog(`error: ${e.message} @ ${e.filename}:${e.lineno}:${e.colno} ${e.error?.stack ?? ""}`));
   useApp.subscribe((s, prev) => s.notices.filter((n) => !prev.notices.includes(n)).forEach((n) => void api.selftestLog(`notice: ${n}`)));
   addEventListener("unhandledrejection", (e) => void api.selftestLog(`rejection: ${e.reason?.stack ?? e.reason}`));
