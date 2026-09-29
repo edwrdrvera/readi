@@ -11,7 +11,13 @@ import "./pdf.css";
 
 type PdfLocator = Extract<Locator, { format: "pdf" }>;
 type Box = { left: number; top: number; width: number; height: number; scale: number };
-type Slot = { div: HTMLDivElement; canvas: HTMLCanvasElement | null; key: string; task: ReturnType<PdfPage["render"]> | null };
+type Slot = {
+  div: HTMLDivElement;
+  canvas: HTMLCanvasElement | null;
+  key: string;
+  task: ReturnType<PdfPage["render"]> | null;
+  done: Promise<void>;
+};
 
 const PAD = 16;
 const GAP = 12;
@@ -147,9 +153,14 @@ class PdfView {
   /** The PDF point at the viewport's top-left in vertical mode, and how far into its page that is. */
   private readScroll(): { loc: PdfLocator; fraction: number } {
     const { scrollTop, scrollLeft } = this.scroller;
-    const i = pageAt(this.tops, scrollTop);
+    let i = pageAt(this.tops, scrollTop);
+    // The gap below a page reads as the top of the next one, so a position
+    // rounded a pixel short of a page top stays on that page.
+    if (scrollTop >= this.tops[i] + this.boxes.get(i)!.height && i + 1 < this.numPages) i++;
     const box = this.boxes.get(i)!;
-    const [x, y] = toPdf(this.geom(i), box.scale, scrollLeft - box.left, scrollTop - box.top);
+    const dx = Math.min(box.width, Math.max(0, scrollLeft - box.left));
+    const dy = Math.min(box.height, Math.max(0, scrollTop - box.top));
+    const [x, y] = toPdf(this.geom(i), box.scale, dx, dy);
     const fraction = Math.min(1, Math.max(0, (scrollTop - box.top) / box.height));
     return { loc: { format: "pdf", v: 1, page_index: i, x, y }, fraction };
   }
@@ -163,7 +174,7 @@ class PdfView {
     const { scrollTop, scrollLeft } = this.scroller;
     // A scroll event caused by our own placement, including one the browser
     // clamped, must not replace the position we were asked to keep.
-    if (scrollTop !== this.placed.top || scrollLeft !== this.placed.left) {
+    if (Math.abs(scrollTop - this.placed.top) > 1 || Math.abs(scrollLeft - this.placed.left) > 1) {
       this.placed = { top: -1, left: -1 };
       const { loc, fraction } = this.readScroll();
       this.loc = loc;
@@ -226,27 +237,31 @@ class PdfView {
     this.slots.delete(i);
   }
 
-  private async render(i: number) {
+  private render(i: number): Promise<void> {
     const box = this.boxes.get(i)!;
     let slot = this.slots.get(i);
     if (!slot) {
       const div = document.createElement("div");
       div.className = "pdf-page";
       this.content.append(div);
-      slot = { div, canvas: null, key: "", task: null };
+      slot = { div, canvas: null, key: "", task: null, done: Promise.resolve() };
       this.slots.set(i, slot);
     }
     Object.assign(slot.div.style, { left: `${box.left}px`, top: `${box.top}px`, width: `${box.width}px`, height: `${box.height}px` });
     const dpr = devicePixelRatio || 1;
     const key = `${box.scale}@${dpr}`;
-    if (slot.key === key) return;
+    if (slot.key === key) return slot.done;
     slot.key = key;
     slot.task?.cancel();
-    const current = slot;
+    slot.done = this.draw(i, slot, box.scale * dpr, key);
+    return slot.done;
+  }
+
+  private async draw(i: number, current: Slot, scale: number, key: string) {
     const stale = () => this.slots.get(i) !== current || current.key !== key;
     const page = await this.doc.getPage(i + 1);
     if (stale()) return;
-    const viewport = page.getViewport({ scale: box.scale * dpr });
+    const viewport = page.getViewport({ scale });
     const canvas = document.createElement("canvas");
     canvas.width = Math.ceil(viewport.width);
     canvas.height = Math.ceil(viewport.height);
@@ -441,6 +456,8 @@ export function PdfReader({ detail, prefs = DEFAULT_PREFS }: { detail: BookDetai
       },
       settled: async () => {
         await pending.ready.promise;
+        // Let React commit a prefs change made just before this call.
+        await new Promise((r) => setTimeout(r, 0));
         await (await view).settled();
       },
       anchor: () => viewRef.current?.anchor() ?? "",
