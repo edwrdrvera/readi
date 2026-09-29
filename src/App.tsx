@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { api } from "./lib/api";
+import { extraction } from "./lib/extraction";
 import { useApp } from "./lib/store";
 import { EpubReader } from "./reader/EpubReader";
 import { PdfReader } from "./reader/PdfReader";
@@ -15,6 +16,7 @@ export async function importPaths(paths: string[]) {
     else if (o.result.already_in_library) notify(`“${o.result.book.title}” is already in the library`);
   }
   await refreshBooks();
+  extraction.kick();
   return outcomes;
 }
 
@@ -86,6 +88,8 @@ export default function App() {
 
   useEffect(() => {
     void refreshBooks();
+    extraction.kick();
+    const off = extraction.onChange(() => void refreshBooks());
     const drop = getCurrentWebview().onDragDropEvent((e) => {
       if (e.payload.type === "drop") void importPaths(e.payload.paths);
     });
@@ -106,6 +110,7 @@ export default function App() {
     };
     window.addEventListener("keydown", keys);
     return () => {
+      off();
       void drop.then((u) => u());
       window.removeEventListener("keydown", keys);
     };
