@@ -3,6 +3,8 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { api } from "./lib/api";
 import { useApp } from "./lib/store";
+import { EpubReader } from "./reader/EpubReader";
+import { activeReader } from "./reader/handle";
 
 export async function importPaths(paths: string[]) {
   const { notify, refreshBooks } = useApp.getState();
@@ -22,6 +24,7 @@ async function pickAndImport() {
 
 function Library() {
   const books = useApp((s) => s.books);
+  const openBook = useApp((s) => s.openBook);
   return (
     <main className="library">
       <header>
@@ -34,7 +37,7 @@ function Library() {
         <ul className="books">
           {books.map((b) => (
             <li key={b.id}>
-              <button className="book">
+              <button className="book" onClick={() => void openBook(b.id)}>
                 <span className="title">{b.title}</span>
                 <span className="meta">
                   {b.authors.join(", ") || "Unknown author"} · {b.format.toUpperCase()} · {b.reading_state}
@@ -49,7 +52,34 @@ function Library() {
   );
 }
 
+function Reader() {
+  const screen = useApp((s) => s.screen);
+  const closeBook = useApp((s) => s.closeBook);
+  const saveStatus = useApp((s) => s.saveStatus);
+  if (screen.name !== "reader") return null;
+  const { detail } = screen;
+  const back = async () => {
+    await activeReader()?.flush();
+    closeBook();
+  };
+  return (
+    <main className="reader">
+      <header className="reader-chrome">
+        <button onClick={() => void back()} aria-label="Back to library">‹ Library</button>
+        <span className="reader-title">{detail.book.title}</span>
+        {saveStatus?.kind === "error" && (
+          <span className="save-error" role="alert">
+            Progress not saved. <button onClick={() => void activeReader()?.flush()}>Retry</button>
+          </span>
+        )}
+      </header>
+      <EpubReader key={detail.book.id} detail={detail} />
+    </main>
+  );
+}
+
 export default function App() {
+  const screen = useApp((s) => s.screen);
   const notices = useApp((s) => s.notices);
   const refreshBooks = useApp((s) => s.refreshBooks);
 
@@ -66,6 +96,12 @@ export default function App() {
         void pickAndImport();
         return;
       }
+      const reader = activeReader();
+      if (!reader) return;
+      if (e.key === "ArrowRight" || (e.key === " " && !e.shiftKey)) void reader.next();
+      else if (e.key === "ArrowLeft" || (e.key === " " && e.shiftKey)) void reader.prev();
+      else return;
+      e.preventDefault();
     };
     window.addEventListener("keydown", keys);
     return () => {
@@ -76,7 +112,7 @@ export default function App() {
 
   return (
     <>
-      <Library />
+      {screen.name === "library" ? <Library /> : <Reader />}
       <div className="notices" role="status">
         {notices.map((n) => (
           <div key={n} className="notice">{n}</div>
