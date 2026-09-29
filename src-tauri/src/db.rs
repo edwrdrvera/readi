@@ -304,6 +304,37 @@ pub fn mark_opened(conn: &Connection, id: i64) -> Result<(), String> {
     .map_err(|e| e.to_string())
 }
 
+/// Claims the next extraction job. Jobs left in `indexing` by a previous
+/// process are reclaimed, which makes interrupted indexing resume on launch.
+pub fn claim_job(conn: &Connection, reclaim_stale: bool) -> Result<Option<i64>, String> {
+    let states = if reclaim_stale { "('queued','indexing')" } else { "('queued')" };
+    let id: Option<i64> = conn
+        .query_row(
+            &format!("SELECT book_id FROM extraction_jobs WHERE state IN {states} ORDER BY updated_at, book_id LIMIT 1"),
+            [],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+    if let Some(id) = id {
+        conn.execute(
+            "UPDATE extraction_jobs SET state = 'indexing', attempts = attempts + 1, updated_at = ?2 WHERE book_id = ?1",
+            params![id, now()],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    Ok(id)
+}
+
+pub fn fail_job(conn: &Connection, id: i64, error: &str) -> Result<(), String> {
+    conn.execute(
+        "UPDATE extraction_jobs SET state = 'failed', error = ?2, updated_at = ?3 WHERE book_id = ?1",
+        params![id, clean_text(error, 2000), now()],
+    )
+    .map(|_| ())
+    .map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -337,6 +368,15 @@ mod tests {
         let loc = Locator::Epub { v: 1, cfi: "epubcfi(/6/2)".into(), section_index: 0, section_fraction: 0.0 };
         assert!(save_progress(&conn, id, &loc, 0.1).is_err());
         assert!(get_progress(&conn, id).unwrap().is_none());
+    }
+
+    #[test]
+    fn stale_indexing_job_is_reclaimed_on_launch() {
+        let (_d, conn) = fresh();
+        let id = insert_managed_book(&conn, "abc", Format::Epub, "file", 10, "abc.epub").unwrap();
+        claim_job(&conn, false).unwrap();
+        assert_eq!(claim_job(&conn, false).unwrap(), None);
+        assert_eq!(claim_job(&conn, true).unwrap(), Some(id));
     }
 
     #[test]

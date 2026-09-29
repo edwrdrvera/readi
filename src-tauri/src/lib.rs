@@ -63,6 +63,20 @@ fn save_progress(lib: Lib, id: i64, locator: Locator, percent: f64) -> Result<i6
 }
 
 #[tauri::command]
+fn claim_extraction_job(lib: Lib, reclaim_stale: bool) -> Result<Option<BookSummary>, String> {
+    let conn = lib.conn.lock().unwrap();
+    match db::claim_job(&conn, reclaim_stale)? {
+        Some(id) => db::get_book(&conn, id),
+        None => Ok(None),
+    }
+}
+
+#[tauri::command]
+fn fail_extraction(lib: Lib, id: i64, error: String) -> Result<(), String> {
+    db::fail_job(&lib.conn.lock().unwrap(), id, &error)
+}
+
+#[tauri::command]
 fn transport_stats(stats: State<Arc<TransportStats>>, id: i64) -> protocol::Stats {
     stats.0.lock().unwrap().get(&id).copied().unwrap_or_default()
 }
@@ -97,6 +111,8 @@ pub fn run() {
             import_books,
             open_book,
             save_progress,
+            claim_extraction_job,
+            fail_extraction,
             transport_stats,
         ])
         .run(tauri::generate_context!())
