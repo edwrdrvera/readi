@@ -33,7 +33,10 @@ async function locationAt(sha: string, path: string): Promise<{ book: BookSummar
   const [book] = await bookBySha(sha);
   if (!book) return null;
   const loc = (await api.getLocations(book.id)).find((l) => l.path === path);
-  return loc ? { book, loc } : null;
+  if (!loc) return null;
+  // Reconcile commits in one transaction, so a summary read after the locations is at least as new as they are.
+  const [fresh] = await bookBySha(sha);
+  return { book: fresh ?? book, loc };
 }
 
 /** Waits for a watcher-driven state; after `hintMs` without it, asks for one rescan and records that it did. */
