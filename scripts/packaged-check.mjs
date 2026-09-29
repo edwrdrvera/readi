@@ -2,10 +2,11 @@
 // relaunch, and confirm restored positions. Also serves a canary HTTP server
 // that the hostile EPUB points at; any hit means book content reached the network.
 // Usage: node scripts/packaged-check.mjs [path/to/Readi.app]
-import { spawn } from 'node:child_process'
+import { execFile, spawn, spawnSync } from 'node:child_process'
 import { createServer } from 'node:http'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import { runM3 } from './packaged-check-m3.mjs'
 import { join, resolve } from 'node:path'
 
 const root = resolve(import.meta.dirname, '..')
@@ -23,42 +24,88 @@ await new Promise(r => canary.listen(47831, '127.0.0.1', r))
 const dataDir = mkdtempSync(join(tmpdir(), 'readi-check-'))
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
-async function runPhase(phase) {
-  const report = join(dataDir, `${phase}.json`)
+const phaseTimeout = Number(process.env.READI_PHASE_TIMEOUT ?? 600_000)
+const logTail = (report) => existsSync(`${report}.log`) ? readFileSync(`${report}.log`, 'utf8').split('\n').slice(-14).join('\n') : 'no log'
+const webkitPids = () => new Set(spawnSync('pgrep', ['-f', 'com.apple.WebKit'], { encoding: 'utf8' }).stdout.split('\n').filter(Boolean))
+
+/** Sum of `footprint` for the app and the WebKit processes started after `before`, in MB. */
+async function footprintMb(pid, before) {
+  const pids = [String(pid), ...[...webkitPids()].filter(p => !before.has(p))]
+  const out = await new Promise(r => execFile('footprint', pids.flatMap(p => ['-p', p]), { encoding: 'utf8' }, (_e, stdout) => r(stdout ?? '')))
+  const unit = { KB: 1 / 1024, MB: 1, GB: 1024 }
+  return [...out.matchAll(/\[\d+\]:.*Footprint: ([\d.]+) (KB|MB|GB)/g)].reduce((mb, m) => mb + Number(m[1]) * unit[m[2]], 0)
+}
+
+/**
+ * Runs one phase to its report, then SIGKILLs the app. `steps` handles the
+ * self-test's `fs:<step>` log lines; a handler returning 'killed' ends the phase
+ * without a report.
+ */
+async function runPhase(phase, { dir = dataDir, m3, steps = {}, sampleMemory = false } = {}) {
+  const report = join(dir, `${phase}.json`)
+  const before = webkitPids()
+  const launchedAt = Date.now()
   const child = spawn(binary, [], {
     env: {
       ...process.env,
-      READI_DATA_DIR: dataDir,
+      READI_DATA_DIR: dir,
       READI_SELFTEST: report,
       READI_SELFTEST_PHASE: phase,
       READI_SELFTEST_FIXTURES: fixtures.join(':'),
       READI_SELFTEST_SHA: JSON.stringify(sha),
+      ...(m3 ? { READI_SELFTEST_M3: JSON.stringify({ ...m3, launchedAt }) } : {}),
     },
     stdio: ['ignore', 'ignore', 'pipe'],
   })
   let stderr = ''
   child.stderr.on('data', d => (stderr += d))
   const start = Date.now()
-  while (!existsSync(report)) {
-    if (child.exitCode !== null) throw new Error(`app exited early: ${stderr}`)
-    if (Date.now() - start > Number(process.env.READI_PHASE_TIMEOUT ?? 600_000)) {
-      child.kill("SIGKILL")
-      const log = existsSync(`${report}.log`) ? readFileSync(`${report}.log`, "utf8").split("\n").slice(-14).join("\n") : "no log"
-      throw new Error(`no report from ${phase}\n${log}`)
+  const handled = new Set()
+  let peakMb = 0
+  let sampling = false
+  const sampler = sampleMemory && setInterval(async () => {
+    if (sampling) return
+    sampling = true
+    peakMb = Math.max(peakMb, await footprintMb(child.pid, before).catch(() => 0))
+    sampling = false
+  }, 500)
+  try {
+    while (!existsSync(report)) {
+      if (child.exitCode !== null) throw new Error(`app exited early: ${stderr}`)
+      if (Date.now() - start > phaseTimeout) {
+        child.kill('SIGKILL')
+        throw new Error(`no report from ${phase}\n${logTail(report)}`)
+      }
+      const log = existsSync(`${report}.log`) ? readFileSync(`${report}.log`, 'utf8') : ''
+      for (const [, step] of log.matchAll(/ fs:(\S+)$/gm)) {
+        if (handled.has(step)) continue
+        handled.add(step)
+        if (!steps[step]) throw new Error(`no handler for fs:${step}`)
+        if ((await steps[step](child)) === 'killed') return { phase, killed: true, launchedAt }
+      }
+      await sleep(200)
     }
-    await sleep(200)
+  } finally {
+    if (sampler) clearInterval(sampler)
   }
   // SIGKILL: no close handler runs, so only already-acknowledged saves can survive.
   child.kill('SIGKILL')
   await new Promise(r => child.once('exit', r))
-  return JSON.parse(readFileSync(report, 'utf8'))
+  const result = JSON.parse(readFileSync(report, 'utf8'))
+  if (sampleMemory) result.peakFootprintMb = Math.round(peakMb)
+  return result
 }
 
 const checks = []
 const check = (name, ok, detail) => checks.push({ name, ok: !!ok, detail })
+/** Something the run could not prove either way; printed, never a failure. */
+const notVerified = (name, detail) => checks.push({ name, ok: true, notVerified: true, detail })
+const measured = {}
 
 try {
-  const first = await runPhase('first')
+ // READI_ONLY_M3=1 skips the M2 phases while iterating on M3.
+ if (!process.env.READI_ONLY_M3) {
+  const first = await runPhase('first', { sampleMemory: true })
   const restore = await runPhase('restore')
   console.log(JSON.stringify({ first, restore, canaryHits }, null, 2))
 
@@ -134,11 +181,20 @@ try {
     check('Back: contents jump moved away', bk.jumpedAway, bk)
     check('Back: returns to the prior CFI', bk.cfiRestored, bk)
     check('Back: prior passage visible', bk.anchorVisible, bk)
+
+    const wo = restore.warmOpen
+    measured.warmOpen = { epub: { p95: wo.epub.p95, max: wo.epub.max }, pdf: { p95: wo.pdf.p95, max: wo.pdf.max } }
+    measured.peakExtractionFootprintMb = first.peakFootprintMb
+    check('warm open typical.epub x20: p95 < 1000 ms', wo.epub.p95 < 1000, wo.epub)
+    check('warm open text.pdf x20: p95 < 1000 ms', wo.pdf.p95 < 1000, wo.pdf)
   }
+ }
+  await runM3({ root, app, runPhase, check, notVerified, measured, fixtures })
 } finally {
   canary.close()
   rmSync(dataDir, { recursive: true, force: true })
 }
 
-for (const c of checks) console.log(`${c.ok ? 'PASS' : 'FAIL'}  ${c.name}${c.ok ? '' : `  ${JSON.stringify(c.detail)}`}`)
+console.log(JSON.stringify({ measured }, null, 2))
+for (const c of checks) console.log(`${c.notVerified ? 'NOT VERIFIED' : c.ok ? 'PASS' : 'FAIL'}  ${c.name}${c.ok && !c.notVerified ? '' : `  ${JSON.stringify(c.detail)}`}`)
 process.exit(checks.every(c => c.ok) && checks.length > 2 ? 0 : 1)

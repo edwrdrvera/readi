@@ -6,22 +6,11 @@ import { activeReader, type ReaderHandle } from "./reader/handle";
 import { goBack } from "./lib/commands";
 import { THEME_COLORS, type PrefKey, type Prefs } from "./lib/prefs";
 import type { Locator } from "./lib/api";
+import { openAndWait, sleep, until } from "./selftestKit";
+import { runM3Phase } from "./selftestM3";
 
 // Drives the packaged app when READI_SELFTEST is set. scripts/packaged-check.mjs
 // runs the "first" phase, force-kills the app, then runs "restore".
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-async function until<T>(what: string, fn: () => T | Promise<T>, timeoutMs = 60_000): Promise<NonNullable<T>> {
-  void api.selftestLog(`wait: ${what} (${document.visibilityState})`);
-  const start = performance.now();
-  for (;;) {
-    const v = await fn();
-    if (v) return v as NonNullable<T>;
-    if (performance.now() - start > timeoutMs) throw new Error(`timed out waiting for ${what}`);
-    await sleep(50);
-  }
-}
 
 function lagMonitor() {
   let max = 0;
@@ -36,14 +25,6 @@ function lagMonitor() {
 
 const byName = (books: BookSummary[], sha: Record<string, string>, name: string) =>
   books.find((b) => b.sha256 === sha[name])!;
-
-async function openAndWait(id: number) {
-  const started = performance.now();
-  await useApp.getState().openBook(id);
-  const reader = await until("reader", () => (activeReader()?.bookId === id ? activeReader() : null));
-  await reader.ready;
-  return { reader, openMs: Math.round(performance.now() - started) };
-}
 
 async function pdfRendered(page: number) {
   await until(`page ${page} rendered`, () => document.querySelector(`.pdf-host canvas[data-rendered-page="${page}"]`));
@@ -200,8 +181,21 @@ async function restore(sha: Record<string, string>) {
   report.scrollSave = await verticalScrollSave(typical.id);
   report.back = await backHistoryCheck(typical.id);
   await useApp.getState().closeBook();
+  report.warmOpen = { epub: await warmOpens(typical.id), pdf: await warmOpens(text.id) };
   report.ok = true;
   return report;
+}
+
+/** Opens a book 20 times from the Library; p95 and max of open-to-ready. */
+async function warmOpens(id: number) {
+  const ms: number[] = [];
+  for (let i = 0; i < 20; i++) {
+    ms.push((await openAndWait(id)).openMs);
+    await useApp.getState().closeBook();
+    await until("library", () => useApp.getState().screen.name === "library");
+  }
+  const sorted = [...ms].sort((a, b) => a - b);
+  return { ms, p95: sorted[Math.ceil(sorted.length * 0.95) - 1], max: sorted[sorted.length - 1] };
 }
 
 function hexToRgb(hex: string) {
@@ -418,7 +412,11 @@ export async function runSelfTestIfEnabled() {
     void api.selftestLog(`heartbeat ${document.visibilityState} ${books.map((b) => `${b.id}:${b.index_state}`).join(" ")}`);
   }, 5000);
   try {
-    const report = config.phase === "restore" ? await restore(sha) : await first(fixtures, sha);
+    const report = config.phase.startsWith("m3-")
+      ? await runM3Phase(config.phase, config.m3)
+      : config.phase === "restore"
+        ? await restore(sha)
+        : await first(fixtures, sha);
     await api.selftestReport(report);
   } catch (e) {
     await api.selftestReport({ phase: config.phase, ok: false, error: String(e), stack: (e as Error)?.stack });
