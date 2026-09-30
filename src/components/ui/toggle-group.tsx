@@ -3,13 +3,13 @@ import { ToggleGroup as ToggleGroupPrimitive } from "radix-ui";
 import { cn } from "@/lib/utils";
 
 const itemClass =
-  "inline-flex h-8 flex-1 items-center justify-center gap-1.5 whitespace-nowrap px-2.5 text-sm font-medium outline-none transition-colors first:rounded-l-md last:rounded-r-md border-l first:border-l-0 hover:bg-muted hover:text-foreground focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 data-[state=on]:bg-accent data-[state=on]:text-accent-foreground";
+  "inline-flex h-7 flex-1 basis-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-2.5 text-xs text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 data-[state=on]:bg-popover data-[state=on]:text-foreground data-[state=on]:shadow-segment";
 
 function ToggleGroup({ className, ...props }: React.ComponentProps<typeof ToggleGroupPrimitive.Root>) {
   return (
     <ToggleGroupPrimitive.Root
       data-slot="toggle-group"
-      className={cn("flex w-full items-center rounded-md border", className)}
+      className={cn("flex w-full items-center rounded-lg bg-muted p-0.5", className)}
       {...props}
     />
   );

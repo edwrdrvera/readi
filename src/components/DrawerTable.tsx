@@ -1,6 +1,7 @@
 import { MoreHorizontal } from "lucide-react";
 import type { BookSummary } from "@/lib/api";
 import { useApp } from "@/lib/store";
+import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
@@ -25,7 +26,7 @@ function DrawerRow({ book }: { book: BookSummary }) {
       <ContextMenu onOpenChange={loadForMenu}>
         <ContextMenuTrigger asChild>
           <button
-            className={`${COLUMNS} h-11 w-full px-3 text-left text-[13px] outline-none group-data-[focused=true]:bg-accent/60 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset`}
+            className={cn(COLUMNS, "h-11 w-full px-3 text-left text-[13px] outline-none group-data-[focused=true]:bg-accent/60 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset")}
             onClick={() => void openBook(book.id)}
             onFocus={() => focused || focusBook(book.id)}
             aria-label={`${book.title}${book.available ? "" : ", missing"}`}
@@ -68,7 +69,7 @@ function DrawerRow({ book }: { book: BookSummary }) {
 export function DrawerTable({ books }: { books: BookSummary[] }) {
   return (
     <div className="text-[13px]">
-      <div className={`${COLUMNS} border-b px-3 pb-2 text-[11px] text-muted-foreground`} aria-hidden>
+      <div className={cn(COLUMNS, "border-b px-3 pb-2 text-[11px] text-muted-foreground")} aria-hidden>
         <span>Name</span>
         <span>Progress</span>
         <span>Size</span>

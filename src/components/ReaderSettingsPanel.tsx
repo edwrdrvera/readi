@@ -15,6 +15,7 @@ import {
 } from "@/lib/prefs";
 import { useApp } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 function Section({ prefKey, label, aside, children }: { prefKey: PrefKey; label: string; aside?: ReactNode; children: ReactNode }) {
   const overridden = useApp((s) => prefKey in s.overrides);
@@ -43,23 +44,13 @@ function Section({ prefKey, label, aside, children }: { prefKey: PrefKey; label:
 
 function Segmented<T extends string>({ label, value, options, onChange, fontOf }: { label: string; value: T; options: [T, string][]; onChange(v: T): void; fontOf?(v: T): string | undefined }) {
   return (
-    <div role="radiogroup" aria-label={label} className="flex rounded-lg bg-muted p-0.5">
+    <ToggleGroup type="single" aria-label={label} value={value} onValueChange={(v) => v && onChange(v as T)}>
       {options.map(([v, text]) => (
-        <button
-          key={v}
-          role="radio"
-          aria-checked={value === v}
-          onClick={() => onChange(v)}
-          style={fontOf ? { fontFamily: fontOf(v) } : undefined}
-          className={cn(
-            "h-7 flex-1 basis-0 rounded-md text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            value === v ? "bg-popover shadow-[0_1px_2px_rgba(0,0,0,.12)]" : "text-muted-foreground hover:text-foreground",
-          )}
-        >
+        <ToggleGroupItem key={v} value={v} style={fontOf ? { fontFamily: fontOf(v) } : undefined}>
           {text}
-        </button>
+        </ToggleGroupItem>
       ))}
-    </div>
+    </ToggleGroup>
   );
 }
 
