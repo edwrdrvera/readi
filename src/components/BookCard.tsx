@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
 import { BookMenuItems, contextKit, dropdownKit } from "./BookMenu";
 
 const INDEX_BADGE: Partial<Record<BookSummary["index_state"], string>> = {
@@ -17,41 +18,52 @@ const INDEX_BADGE: Partial<Record<BookSummary["index_state"], string>> = {
 
 const TINTS = ["#5b7fa6", "#7a6aa0", "#5f8f6e", "#a0735a", "#8a5d73", "#56858a"];
 
-function Cover({ book }: { book: BookSummary }) {
+export const percentLabel = (percent: number | null) => `${Math.round((percent ?? 0) * 100)}%`;
+
+export function bookMeta(book: BookSummary): string {
+  if (book.reading_state === "finished") return "Finished";
+  if (book.reading_state === "reading") return percentLabel(book.percent);
+  return "New";
+}
+
+export function Cover({ book, className, small }: { book: BookSummary; className?: string; small?: boolean }) {
   const [failed, setFailed] = useState(false);
+  const base = cn("aspect-[2/3] w-full rounded-[3px] shadow-[0_1px_2px_rgba(0,0,0,.12),0_6px_16px_rgba(0,0,0,.08)]", className);
   if (book.has_cover && !failed) {
-    return <img src={coverUrl(book.id)} alt="" loading="lazy" className="aspect-[2/3] w-full rounded-md object-cover shadow-sm" onError={() => setFailed(true)} />;
+    return <img src={coverUrl(book.id)} alt="" loading="lazy" className={cn(base, "object-cover")} onError={() => setFailed(true)} />;
   }
   return (
-    <div
-      className="flex aspect-[2/3] w-full items-center justify-center rounded-md p-3 text-center text-sm font-semibold text-white shadow-sm"
-      style={{ background: TINTS[book.id % TINTS.length] }}
-      aria-hidden
-    >
-      <span className="line-clamp-5">{book.title}</span>
+    <div className={cn(base, "flex flex-col justify-between text-white", small ? "justify-end p-2" : "p-3")} style={{ background: TINTS[book.id % TINTS.length] }} aria-hidden>
+      <span className={cn("line-clamp-5 font-serif leading-tight font-semibold", small ? "text-[9px]" : "text-sm")}>{book.title}</span>
+      {!small && <span className="truncate text-[10px] opacity-85">{book.authors[0] ?? ""}</span>}
     </div>
   );
 }
 
-export function BookCard({ book }: { book: BookSummary }) {
+export function useFocusedRow(bookId: number) {
   const ref = useRef<HTMLLIElement>(null);
-  const focused = useApp((s) => s.focusedBookId === book.id);
-  const openBook = useApp((s) => s.openBook);
-  const focusBook = useApp((s) => s.focusBook);
-  const loadLocations = useApp((s) => s.loadLocations);
-  const author = book.authors[0] ?? "Unknown author";
-  const loadForMenu = (open: boolean) => void (open && loadLocations(book.id).catch(() => {}));
-
+  const focused = useApp((s) => s.focusedBookId === bookId);
   useEffect(() => {
     if (focused) ref.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [focused]);
+  return { ref, focused };
+}
+
+export const loadMenuLocations = (id: number) => (open: boolean) => void (open && useApp.getState().loadLocations(id).catch(() => {}));
+
+export function BookCard({ book }: { book: BookSummary }) {
+  const { ref, focused } = useFocusedRow(book.id);
+  const openBook = useApp((s) => s.openBook);
+  const focusBook = useApp((s) => s.focusBook);
+  const author = book.authors[0] ?? "Unknown author";
+  const loadForMenu = loadMenuLocations(book.id);
 
   return (
-    <li ref={ref} data-book-id={book.id} data-focused={focused} className="group relative flex flex-col gap-1.5">
+    <li ref={ref} data-book-id={book.id} data-focused={focused} className="group relative">
       <ContextMenu onOpenChange={loadForMenu}>
         <ContextMenuTrigger asChild>
           <button
-            className="flex flex-col gap-1.5 rounded-lg p-1.5 text-left outline-none group-data-[focused=true]:ring-2 group-data-[focused=true]:ring-ring hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex w-full flex-col gap-2 rounded-md text-left outline-none group-data-[focused=true]:ring-2 group-data-[focused=true]:ring-ring group-data-[focused=true]:ring-offset-4 group-data-[focused=true]:ring-offset-background focus-visible:ring-2 focus-visible:ring-ring"
             onClick={() => void openBook(book.id)}
             onFocus={() => focused || focusBook(book.id)}
             aria-label={`${book.title}, ${author}${book.available ? "" : ", missing"}`}
@@ -59,18 +71,20 @@ export function BookCard({ book }: { book: BookSummary }) {
             <div className={book.available ? "" : "opacity-50 grayscale"}>
               <Cover book={book} />
             </div>
-            <span className="line-clamp-2 text-[13px] leading-snug font-semibold">{book.title}</span>
-            <span className="truncate text-xs text-muted-foreground">{book.authors.join(", ") || "Unknown author"}</span>
-            <span className="flex flex-wrap gap-1">
-              {!book.available && <Badge variant="destructive">Missing</Badge>}
-              {book.reading_state === "finished" && <Badge variant="secondary">Finished</Badge>}
-              {INDEX_BADGE[book.index_state] && (
-                <Badge variant={book.index_state === "failed" ? "destructive" : "outline"} data-testid="index-state" data-state={book.index_state}>
-                  {INDEX_BADGE[book.index_state]}
-                </Badge>
-              )}
-              <Badge variant="outline">{book.format.toUpperCase()}</Badge>
+            <span className="flex min-w-0 flex-col gap-0.5">
+              <span className="truncate text-xs font-medium">{book.title}</span>
+              <span className="text-[11px] text-muted-foreground">{bookMeta(book)}</span>
             </span>
+            {(!book.available || INDEX_BADGE[book.index_state]) && (
+              <span className="flex flex-wrap gap-1">
+                {!book.available && <Badge variant="destructive">Missing</Badge>}
+                {INDEX_BADGE[book.index_state] && (
+                  <Badge variant={book.index_state === "failed" ? "destructive" : "outline"} data-testid="index-state" data-state={book.index_state}>
+                    {INDEX_BADGE[book.index_state]}
+                  </Badge>
+                )}
+              </span>
+            )}
           </button>
         </ContextMenuTrigger>
         <ContextMenuContent>
@@ -83,7 +97,7 @@ export function BookCard({ book }: { book: BookSummary }) {
             variant="secondary"
             size="icon-sm"
             aria-label={`More actions for ${book.title}`}
-            className="absolute top-3 right-3 opacity-0 shadow-sm group-focus-within:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
+            className="absolute top-2 right-2 opacity-0 shadow-sm group-focus-within:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
           >
             <MoreHorizontal />
           </Button>

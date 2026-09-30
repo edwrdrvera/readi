@@ -5,20 +5,24 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { Annotation } from "@/lib/api";
 import { filterAnnotations, positionLabel } from "@/lib/annotations";
-import { closeSidebar } from "@/lib/commands";
 import { showAnnotation } from "@/lib/jumps";
 import { useApp } from "@/lib/store";
+import { AnnotationCard } from "./AnnotationCard";
 import { SWATCH } from "./HighlightPopover";
 
 export function AnnotationsTab() {
   const annotations = useApp((s) => s.annotations);
   const setEditing = useApp((s) => s.setEditing);
-  const deleteAnnotation = useApp((s) => s.deleteAnnotation);
+  const schedule = useApp((s) => s.schedule);
+  const editingId = useApp((s) => s.editingId);
   const [filter, setFilter] = useState("");
-  const shown = useMemo(() => filterAnnotations(annotations, filter), [annotations, filter]);
+  // The entry being edited stays listed whatever the filter says.
+  const shown = useMemo(() => {
+    const matching = filterAnnotations(annotations, filter);
+    return annotations.filter((a) => a.id === editingId || matching.includes(a));
+  }, [annotations, filter, editingId]);
 
   const open = async (a: Annotation) => {
-    if (!useApp.getState().sidebar.pinned) closeSidebar();
     await showAnnotation(a);
   };
 
@@ -41,6 +45,7 @@ export function AnnotationsTab() {
       ) : (
         <ul aria-label="Highlights and bookmarks" className="m-0 flex list-none flex-col gap-1 p-0">
           {shown.map((a) => {
+            if (a.id === editingId) return <AnnotationCard key={a.id} annotation={a} />;
             const unresolved = a.anchor_state === "unresolved";
             const text = a.kind === "bookmark" ? a.quote || positionLabel(a) : a.quote || "Highlight";
             return (
@@ -72,7 +77,7 @@ export function AnnotationsTab() {
                   <Button variant="ghost" size="icon-sm" aria-label="Edit note" onClick={() => setEditing(a.id)}>
                     <Pencil />
                   </Button>
-                  <Button variant="ghost" size="icon-sm" aria-label={a.kind === "bookmark" ? "Delete bookmark" : "Delete highlight"} onClick={() => void deleteAnnotation(a.id)}>
+                  <Button variant="ghost" size="icon-sm" aria-label={a.kind === "bookmark" ? "Delete bookmark" : "Delete highlight"} onClick={() => schedule({ kind: "delete-annotation", annotationId: a.id })}>
                     <Trash2 />
                   </Button>
                 </span>

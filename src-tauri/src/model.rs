@@ -151,6 +151,8 @@ pub struct BookSummary {
     /// Derived: true when at least one location is readable. Never stored.
     pub available: bool,
     pub has_cover: bool,
+    /// Last saved reading position, 0..1. None until the book is opened.
+    pub percent: Option<f64>,
     /// Manual memberships plus derived watched-folder collections.
     pub collection_ids: Vec<i64>,
 }

@@ -58,7 +58,7 @@ describe("search status", () => {
 
   it("describes library index counts", () => {
     expect(libraryStatusLines({ indexing: 3, no_text: 1, failed: 0 })).toEqual([
-      "3 books still indexing — results may be incomplete",
+      "3 books still indexing. Results may be incomplete",
       "1 book with no searchable text",
     ]);
     expect(libraryStatusLines({ indexing: 0, no_text: 0, failed: 0 })).toEqual([]);

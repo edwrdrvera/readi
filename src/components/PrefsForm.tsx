@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Minus, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { FONT_SIZE, LINE_HEIGHTS, type PrefKey, type Prefs } from "@/lib/prefs";
+import { FONT_SIZE, LINE_HEIGHTS, nearestLineSpacing, type LineSpacing, type PrefKey, type Prefs } from "@/lib/prefs";
 
 export type PrefGroup = "layout" | "text" | "pdf";
 
@@ -13,10 +13,20 @@ interface Props {
   /** Keys that differ from the defaults for this book. */
   overridden?: Partial<Record<PrefKey, boolean>>;
   onClear?(key: PrefKey): void;
+  inline?: boolean;
 }
 
-function Row({ label, prefKey, overridden, onClear, children }: { label: string; prefKey: PrefKey; overridden?: boolean; onClear?(k: PrefKey): void; children: ReactNode }) {
+function Row({ label, prefKey, overridden, onClear, inline, children }: { label: string; prefKey: PrefKey; overridden?: boolean; onClear?(k: PrefKey): void; inline?: boolean; children: ReactNode }) {
   const id = `pref-${prefKey}`;
+  if (inline)
+    return (
+      <div className="flex min-h-12 items-center justify-between gap-4 border-b py-2" role="group" aria-labelledby={id}>
+        <span id={id} className="text-[13px]">
+          {label}
+        </span>
+        {children}
+      </div>
+    );
   return (
     <div className="flex flex-col gap-1.5" role="group" aria-labelledby={id}>
       <div className="flex items-center justify-between text-xs">
@@ -47,14 +57,14 @@ function Choice<T extends string>({ value, options, onChange, label }: { value: 
   );
 }
 
-export function PrefsForm({ values, groups, onChange, overridden = {}, onClear }: Props) {
+export function PrefsForm({ values, groups, onChange, overridden = {}, onClear, inline }: Props) {
   const row = (key: PrefKey, label: string, children: ReactNode) => (
-    <Row key={key} label={label} prefKey={key} overridden={overridden[key]} onClear={onClear}>
+    <Row key={key} label={label} prefKey={key} overridden={overridden[key]} onClear={onClear} inline={inline}>
       {children}
     </Row>
   );
   return (
-    <div className="flex flex-col gap-4">
+    <div className={inline ? "flex flex-col" : "flex flex-col gap-4"}>
       {groups.includes("layout") && (
         <>
           {row("reading_mode", "Reading mode", <Choice label="Reading mode" value={values.reading_mode} options={[["vertical", "Vertical"], ["horizontal", "Horizontal"]]} onChange={(v) => onChange("reading_mode", v)} />)}
@@ -78,7 +88,9 @@ export function PrefsForm({ values, groups, onChange, overridden = {}, onClear }
               </Button>
             </div>,
           )}
-          {row("line_height", "Line spacing", <Choice label="Line spacing" value={String(values.line_height)} options={LINE_HEIGHTS.map((h) => [String(h), String(h)] as [string, string])} onChange={(v) => onChange("line_height", Number(v))} />)}
+          {row("line_height", "Line spacing", <Choice label="Line spacing" value={nearestLineSpacing(values.line_height)} options={[["tight", "Tight"], ["normal", "Normal"], ["loose", "Loose"]]} onChange={(v) => onChange("line_height", LINE_HEIGHTS[v as LineSpacing])} />)}
+          {row("page_width", "Page width", <Choice label="Page width" value={values.page_width} options={[["narrow", "Narrow"], ["medium", "Medium"], ["wide", "Wide"]]} onChange={(v) => onChange("page_width", v)} />)}
+          {row("text_align", "Justify text", <Choice label="Justify text" value={values.text_align} options={[["left", "Off"], ["justify", "On"]]} onChange={(v) => onChange("text_align", v)} />)}
         </>
       )}
       {groups.includes("pdf") && (

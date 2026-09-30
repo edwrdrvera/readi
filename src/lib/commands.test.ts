@@ -20,6 +20,7 @@ const book = (id: number, title: string, reading_state: BookSummary["reading_sta
   opened_at: null,
   available: true,
   has_cover: false,
+  percent: null,
   collection_ids,
 });
 

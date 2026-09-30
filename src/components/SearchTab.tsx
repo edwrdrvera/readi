@@ -3,7 +3,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api, type BookDetail, type BookSearch, type SearchHit } from "@/lib/api";
 import { groupLabel, hitCount, searchStatus } from "@/lib/annotations";
-import { closeSidebar } from "@/lib/commands";
 import { extraction } from "@/lib/extraction";
 import { showHit } from "@/lib/jumps";
 import { useApp } from "@/lib/store";
@@ -41,7 +40,6 @@ export function SearchTab({ detail }: { detail: BookDetail }) {
   const fmt = detail.book.format;
 
   const open = async (hit: SearchHit) => {
-    if (!useApp.getState().sidebar.pinned) closeSidebar();
     await showHit(bookId, hit);
   };
 
@@ -87,7 +85,7 @@ export function SearchTab({ detail }: { detail: BookDetail }) {
       )}
       {status !== "idle" && status !== "loading" && (
         <div data-testid="search-status" data-state={status} role="status" className="px-1 text-xs text-muted-foreground">
-          {status === "indexing" && "Still indexing — results may be incomplete"}
+          {status === "indexing" && "Still indexing. Results may be incomplete"}
           {status === "no_text" && "This book has no searchable text (for example, a scanned PDF)"}
           {status === "failed" && (
             <span className="flex items-center gap-2 text-destructive">

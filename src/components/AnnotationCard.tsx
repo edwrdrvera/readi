@@ -9,18 +9,11 @@ import { useApp } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { SWATCH } from "./HighlightPopover";
 
-export function AnnotationEditor() {
-  const id = useApp((s) => s.editingId);
-  const annotation = useApp((s) => s.annotations.find((a) => a.id === s.editingId));
-  if (id === null || !annotation) return null;
-  return <Editor key={id} annotation={annotation} />;
-}
-
-function Editor({ annotation }: { annotation: Annotation }) {
+export function AnnotationCard({ annotation }: { annotation: Annotation }) {
   const { id } = annotation;
   const setEditing = useApp((s) => s.setEditing);
   const updateAnnotation = useApp((s) => s.updateAnnotation);
-  const deleteAnnotation = useApp((s) => s.deleteAnnotation);
+  const schedule = useApp((s) => s.schedule);
   const [saver] = useState(() => noteSaver(id, annotation.note ?? "", (note) => updateAnnotation(id, { note })));
   const [text, setText] = useState(saver.text);
   const [status, setStatus] = useState<NoteStatus>(saver.status);
@@ -41,8 +34,11 @@ function Editor({ annotation }: { annotation: Annotation }) {
       document.removeEventListener("visibilitychange", flush);
       void unlisten.then((u) => u());
       void releaseNote(id);
-      const back = opener.current instanceof HTMLElement && opener.current.isConnected && opener.current !== document.body ? opener.current : document.querySelector<HTMLElement>("[data-reading-region]");
-      requestAnimationFrame(() => back?.focus());
+      const from = opener.current instanceof HTMLElement && opener.current !== document.body ? opener.current : null;
+      requestAnimationFrame(() => {
+        const row = document.querySelector<HTMLElement>(`[data-testid="annotation-item"][data-id="${id}"] button`);
+        (from?.isConnected ? from : (row ?? document.querySelector<HTMLElement>("[data-reading-region]")))?.focus();
+      });
     };
   }, [id, saver]);
 
@@ -50,12 +46,11 @@ function Editor({ annotation }: { annotation: Annotation }) {
   const isHighlight = annotation.kind === "highlight";
 
   return (
-    <div
-      role="dialog"
+    <li
       aria-label={isHighlight ? "Edit highlight" : "Edit bookmark"}
       data-testid="annotation-editor"
       data-id={id}
-      className="fixed top-14 right-4 z-40 flex w-80 flex-col gap-2 rounded-lg border bg-popover p-3 text-sm shadow-xl"
+      className="note-card flex flex-col gap-2.5 rounded-lg border bg-popover p-3 text-sm shadow-[0_1px_2px_rgba(0,0,0,.08)]"
       onKeyDown={(e) => {
         if (e.key !== "Escape") return;
         e.preventDefault();
@@ -63,10 +58,10 @@ function Editor({ annotation }: { annotation: Annotation }) {
       }}
     >
       <div className="flex items-start gap-2">
-        <p className="line-clamp-3 flex-1 text-[13px] text-muted-foreground">
+        <p className="line-clamp-4 flex-1 text-[13px] leading-snug">
           {annotation.quote || positionLabel(annotation)}
         </p>
-        <Button variant="ghost" size="icon-sm" aria-label="Close editor" onClick={() => setEditing(null)}>
+        <Button variant="ghost" size="icon-sm" className="-mt-1 -mr-1" aria-label="Close editor" onClick={() => setEditing(null)}>
           <X />
         </Button>
       </div>
@@ -123,10 +118,10 @@ function Editor({ annotation }: { annotation: Annotation }) {
             </>
           )}
         </span>
-        <Button variant="ghost" size="sm" aria-label={isHighlight ? "Delete highlight" : "Delete bookmark"} onClick={() => void deleteAnnotation(id)}>
+        <Button variant="ghost" size="sm" aria-label={isHighlight ? "Delete highlight" : "Delete bookmark"} onClick={() => schedule({ kind: "delete-annotation", annotationId: id })}>
           <Trash2 /> Delete
         </Button>
       </div>
-    </div>
+    </li>
   );
 }

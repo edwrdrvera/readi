@@ -234,7 +234,7 @@ async function index(m4: M4Config, sha: Record<string, string>): Promise<Report>
     setValue(input, "harbor");
     const status = await until("library status", () => q(tid("library-search-status")), 10_000);
     const largeStateAfter = await indexState(ids.large);
-    s().setLibrarySearchOpen(false);
+    s().setSearch({ open: false, query: "" });
     return {
       focused: word.focused,
       wordState: word.state,
@@ -582,6 +582,8 @@ async function pdfHighlight(ids: Ids): Promise<Report> {
   const second = await until("second highlight editor", () => q(tid("annotation-editor")), 5000);
   const secondId = Number(second.dataset.id);
   q<HTMLButtonElement>('button[aria-label="Delete highlight"]', second)?.click();
+  const undoShown = await until("undo bar for the deletion", () => q(`${tid("undo-bar")}[data-kind="delete-annotation"]`), 3000).catch(() => null);
+  await s().flushPending();
   const deleted = await until("second highlight deleted", async () => !(await api.listAnnotations(ids.text)).some((a) => a.id === secondId), 5000).catch(() => false);
   const undrawn = await until("second highlight undrawn", () => !q(`polygon.pdf-hl[data-id="${secondId}"]`), 5000).catch(() => false);
   return {
@@ -598,7 +600,7 @@ async function pdfHighlight(ids: Ids): Promise<Report> {
     note,
     blue,
     blueDrawn,
-    second: { id: secondId, deleted, undrawn },
+    second: { id: secondId, deleted, undrawn, undoShown: undoShown !== null },
   };
 }
 
@@ -639,7 +641,7 @@ async function unresolved(ids: Ids, notices: Notices): Promise<Report> {
     note: null,
   });
   await s().loadAnnotations(ids.typical);
-  s().setSidebar({ open: true, pinned: true, tab: "annotations" });
+  s().setSidebar({ open: true, tab: "annotations" });
   const item = (id: number) => q(`${tid("annotation-item")}[data-id="${id}"]`);
   const states = await until("anchor states in the list", () => {
     const a = item(orphan.id)?.dataset.anchorState;
@@ -668,7 +670,7 @@ async function unresolved(ids: Ids, notices: Notices): Promise<Report> {
   const recoveredVisible = await until("recovered passage visible", () => epubVisibleText().includes("zephyrquill"), 5000).catch(() => false);
   await sleep(500);
   const recoveredOpen = { section: epubSection(reader), visible: recoveredVisible, drawn: epubOverlays(`g[fill="${EPUB_FILL.pink}"]`).length > 0, notices: notices.since(at2) };
-  s().setSidebar({ open: false, pinned: false });
+  s().setSidebar({ open: false });
 
   const db = await api.listAnnotations(ids.typical);
   return {
@@ -709,14 +711,14 @@ async function restart(m4: M4Config, sha: Record<string, string>): Promise<Repor
     const green = (await api.listAnnotations(ids.typical)).find((a) => a.id === prev.epubId)!;
     await reader.showAnnotation(green);
     const drawn = await until("green overlay after restart", () => epubOverlays(`g[fill="${EPUB_FILL.green}"]`).length > 0, 10_000).catch(() => false);
-    s().setSidebar({ open: true, pinned: true, tab: "annotations" });
+    s().setSidebar({ open: true, tab: "annotations" });
     const listed = await until("annotation states", () => {
       const st = (id: number) => q(`${tid("annotation-item")}[data-id="${id}"]`)?.dataset.anchorState;
       const a = st(prev.orphanId);
       const b = st(prev.recoveredId);
       return a && a !== "unknown" && b && b !== "unknown" ? { orphan: a, recovered: b } : null;
     }, 10_000).catch(() => null);
-    s().setSidebar({ open: false, pinned: false });
+    s().setSidebar({ open: false });
     const r = await findInBook(ids.typical, "zephyrquill");
     return { drawn, listed, search: { state: r.state, count: r.results.length } };
   });

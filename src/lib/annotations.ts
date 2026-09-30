@@ -49,11 +49,11 @@ export const groupLabel = (g: SearchGroup, format: "epub" | "pdf") => (format ==
 
 export const hitCount = (r: BookSearch) => r.groups.reduce((n, g) => n + g.hits.length, 0);
 
-/** Status lines for library search, such as "3 books still indexing — results may be incomplete". */
+/** Status lines for library search, such as "3 books still indexing. Results may be incomplete". */
 export function libraryStatusLines(s: { indexing: number; no_text: number; failed: number }): string[] {
   const books = (n: number) => `${n} ${n === 1 ? "book" : "books"}`;
   const out: string[] = [];
-  if (s.indexing) out.push(`${books(s.indexing)} still indexing — results may be incomplete`);
+  if (s.indexing) out.push(`${books(s.indexing)} still indexing. Results may be incomplete`);
   if (s.no_text) out.push(`${books(s.no_text)} with no searchable text`);
   if (s.failed) out.push(`${books(s.failed)} could not be indexed`);
   return out;

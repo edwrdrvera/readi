@@ -153,6 +153,9 @@ ALTER TABLE text_segments ADD COLUMN mapping TEXT;
 ALTER TABLE annotations ADD COLUMN sort_key REAL NOT NULL DEFAULT 0;
 ALTER TABLE annotations ADD COLUMN anchor_state TEXT NOT NULL DEFAULT 'unknown' CHECK (anchor_state IN ('unknown','resolved','unresolved'));
 CREATE INDEX annotations_book ON annotations(book_id, sort_key);
+"#, r#"
+ALTER TABLE book_preferences ADD COLUMN page_width TEXT;
+ALTER TABLE book_preferences ADD COLUMN text_align TEXT;
 "#];
 
 pub fn now() -> i64 {
@@ -215,6 +218,7 @@ fn summary_from_row(r: &rusqlite::Row) -> rusqlite::Result<BookSummary> {
         opened_at: r.get("opened_at")?,
         available: r.get::<_, i64>("available")? != 0,
         has_cover: r.get::<_, String>("cover_state")? == "ready",
+        percent: r.get("progress_percent")?,
         collection_ids: r
             .get::<_, Option<String>>("collection_ids")?
             .map(|s| s.split(',').filter_map(|x| x.parse().ok()).collect())
@@ -222,14 +226,14 @@ fn summary_from_row(r: &rusqlite::Row) -> rusqlite::Result<BookSummary> {
     })
 }
 
-const SUMMARY_SELECT: &str = "SELECT b.*, j.state AS index_state,
+const SUMMARY_SELECT: &str = "SELECT b.*, j.state AS index_state, p.percent AS progress_percent,
   EXISTS (SELECT 1 FROM book_locations l WHERE l.book_id = b.id AND l.availability = 'available') AS available,
   (SELECT group_concat(id) FROM (
      SELECT cb.collection_id AS id FROM collection_books cb WHERE cb.book_id = b.id
      UNION
      SELECT c.id FROM collections c JOIN book_locations l ON l.watched_folder_id = c.watched_folder_id
      WHERE c.kind = 'derived' AND l.book_id = b.id)) AS collection_ids
-  FROM books b LEFT JOIN extraction_jobs j ON j.book_id = b.id";
+  FROM books b LEFT JOIN extraction_jobs j ON j.book_id = b.id LEFT JOIN progress p ON p.book_id = b.id";
 
 pub fn list_books(conn: &Connection) -> Result<Vec<BookSummary>, String> {
     let mut stmt = conn
@@ -863,9 +867,12 @@ mod tests {
         {
             let conn = open(&path).unwrap();
             let id = insert_managed_book(&conn, "abc", Format::Pdf, "t", 10, "abc.pdf").unwrap();
+            assert_eq!(get_book(&conn, id).unwrap().unwrap().percent, None);
             save_progress(&conn, id, &loc, 0.5).unwrap();
         }
         let conn = open(&path).unwrap();
+        assert_eq!(get_book(&conn, 1).unwrap().unwrap().percent, Some(0.5));
+        assert_eq!(list_books(&conn).unwrap()[0].percent, Some(0.5));
         let p = get_progress(&conn, 1).unwrap().unwrap();
         assert_eq!(p.locator, loc);
         assert_eq!(get_book(&conn, 1).unwrap().unwrap().reading_state, "reading");
