@@ -234,7 +234,7 @@ async function index(m4: M4Config, sha: Record<string, string>): Promise<Report>
     setValue(input, "harbor");
     const status = await until("library status", () => q(tid("library-search-status")), 10_000);
     const largeStateAfter = await indexState(ids.large);
-    s().setLibrarySearchOpen(false);
+    s().setSearch({ open: false, query: "" });
     return {
       focused: word.focused,
       wordState: word.state,

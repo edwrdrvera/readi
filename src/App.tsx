@@ -13,10 +13,8 @@ import { EpubReader } from "./reader/EpubReader";
 import { PdfReader } from "./reader/PdfReader";
 import { BookInfoPanel } from "@/components/BookInfoPanel";
 import { CollectionEditor } from "@/components/CollectionEditor";
-import { CommandPalette } from "@/components/CommandPalette";
 import { AnnotationEditor } from "@/components/AnnotationEditor";
 import { HighlightPopover, useReaderAnnotations } from "@/components/HighlightPopover";
-import { LibrarySearch } from "@/components/LibrarySearch";
 import { ReaderSidebar } from "@/components/ReaderSidebar";
 import { ImportJobs } from "@/components/ImportJobs";
 import { Library } from "@/components/Library";
@@ -119,8 +117,6 @@ export default function App() {
       {detail && <Reader detail={detail} covered={screen.name === "settings"} />}
       <UndoBar />
       <CollectionEditor />
-      <CommandPalette />
-      <LibrarySearch />
       <ImportJobs />
       {dragging && (
         <div data-drop-overlay className="pointer-events-none fixed inset-2 z-50 flex items-center justify-center rounded-xl border-2 border-dashed border-primary bg-background/80 text-lg font-medium">

@@ -8,6 +8,7 @@ import { useApp } from "@/lib/store";
 import { activeTocItem, flattenToc } from "@/lib/toc";
 import { cn } from "@/lib/utils";
 import { activeReader } from "@/reader/handle";
+import { OmniboxActionsList, OmniboxInput, OmniboxProvider } from "./Omnibox";
 import { readerActivity } from "@/reader/activity";
 
 const HIDE_AFTER_MS = 2000;
@@ -34,7 +35,8 @@ export function ReaderChrome({ detail }: { detail: BookDetail }) {
   const backSize = useSyncExternalStore(backHistory.subscribe, () => backHistory.size(bookId));
   const alwaysShow = useApp((s) => s.uiSettings.always_show_controls);
   const selecting = useApp((s) => s.selection !== null || s.editingId !== null);
-  const held = aaOpen || alwaysShow || selecting;
+  const searching = useApp((s) => s.search.open);
+  const held = aaOpen || alwaysShow || selecting || searching;
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -87,10 +89,19 @@ export function ReaderChrome({ detail }: { detail: BookDetail }) {
       <Button variant="ghost" size="icon-sm" className={ICON} aria-label="Back" title="Back (⌘[)" disabled={backSize === 0} onClick={() => void goBack()}>
         <Undo2 />
       </Button>
-      <span data-tauri-drag-region className="mx-2 min-w-0 flex-1 truncate text-center">
-        <span className="font-semibold">{detail.book.title}</span>
-        {section && <span className="text-muted-foreground"> — {section}</span>}
-      </span>
+      {searching ? (
+        <OmniboxProvider scope="reader">
+          <div className="relative mx-2 flex min-w-0 flex-1 justify-center">
+            <OmniboxInput autoFocus className="w-full max-w-[420px]" />
+            <OmniboxActionsList />
+          </div>
+        </OmniboxProvider>
+      ) : (
+        <span data-tauri-drag-region className="mx-2 min-w-0 flex-1 truncate text-center">
+          <span className="font-semibold">{detail.book.title}</span>
+          {section && <span className="text-muted-foreground"> — {section}</span>}
+        </span>
+      )}
       {saveStatus?.kind === "error" && (
         <span className="text-destructive" role="alert">
           Progress not saved.{" "}

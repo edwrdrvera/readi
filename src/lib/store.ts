@@ -73,7 +73,8 @@ interface AppState {
   selection: SelectionInfo | null;
   /** The annotation whose editor is open. */
   editingId: number | null;
-  librarySearchOpen: boolean;
+  /** The search field: the Library's search and actions, or the reader's actions. */
+  search: { open: boolean; query: string };
   /** The open book's search query, kept while the sidebar closes for a jump. */
   bookQuery: string;
   aaOpen: boolean;
@@ -92,7 +93,6 @@ interface AppState {
   infoBookId: number | null;
   pending: Pending | null;
   collectionEditor: CollectionEditor | null;
-  paletteOpen: boolean;
   refreshBooks(): Promise<void>;
   /** Books, collections, folders, and exclusions, after any backend-side change. */
   refreshLibrary(): Promise<void>;
@@ -115,7 +115,6 @@ interface AppState {
   flushPending(): Promise<void>;
   holdPending(reason: HoldReason, on: boolean): void;
   setCollectionEditor(e: CollectionEditor | null): void;
-  setPaletteOpen(open: boolean): void;
   setReadingState(id: number, state: ReadingState): Promise<void>;
   setMembership(collectionId: number, bookIds: number[], member: boolean): Promise<void>;
   /** Returns the backend's error text when the file does not match. */
@@ -149,7 +148,7 @@ interface AppState {
   setProgress(p: Partial<ReadingProgress>): void;
   setSelection(s: SelectionInfo | null): void;
   setEditing(id: number | null): void;
-  setLibrarySearchOpen(open: boolean): void;
+  setSearch(patch: Partial<AppState["search"]>): void;
   setBookQuery(q: string): void;
   loadAnnotations(bookId: number): Promise<void>;
   /** Draws the open book's highlights and persists how each resolved. */
@@ -218,7 +217,7 @@ export const useApp = create<AppState>((set, get) => ({
   annotations: [],
   selection: null,
   editingId: null,
-  librarySearchOpen: false,
+  search: { open: false, query: "" },
   bookQuery: "",
   aaOpen: false,
   position: { tocHref: null, sectionIndex: null },
@@ -234,7 +233,6 @@ export const useApp = create<AppState>((set, get) => ({
   infoBookId: null,
   pending: null,
   collectionEditor: null,
-  paletteOpen: false,
   async refreshBooks() {
     raw.books = await api.listBooks();
     set({ books: visible().books });
@@ -368,9 +366,6 @@ export const useApp = create<AppState>((set, get) => ({
   setCollectionEditor(collectionEditor) {
     set({ collectionEditor });
   },
-  setPaletteOpen(paletteOpen) {
-    set({ paletteOpen });
-  },
   async mutate(label, fn) {
     try {
       await fn();
@@ -445,6 +440,7 @@ export const useApp = create<AppState>((set, get) => ({
         selection: null,
         editingId: null,
         bookQuery: "",
+        search: { open: false, query: "" },
       });
       void get().loadAnnotations(id);
     } catch (e) {
@@ -460,6 +456,7 @@ export const useApp = create<AppState>((set, get) => ({
       annotations: [],
       selection: null,
       editingId: null,
+      search: { open: false, query: "" },
     });
     void get().refreshLibrary();
   },
@@ -549,8 +546,8 @@ export const useApp = create<AppState>((set, get) => ({
   setEditing(editingId) {
     set({ editingId });
   },
-  setLibrarySearchOpen(librarySearchOpen) {
-    set({ librarySearchOpen });
+  setSearch(patch) {
+    set({ search: { ...get().search, ...patch } });
   },
   setBookQuery(bookQuery) {
     set({ bookQuery });

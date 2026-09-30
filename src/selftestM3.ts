@@ -320,23 +320,18 @@ async function watchLive(m3: M3Config): Promise<Report> {
     await openAndWait(id);
     const before = commandRuns["book.finished"] ?? 0;
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
-    const input = await until("palette input", () => document.querySelector<HTMLInputElement>("[cmdk-input]"), 5000);
-    const opened = s().paletteOpen;
+    const input = await until("reader command field", () => document.querySelector<HTMLInputElement>('[data-testid="command-input"]'), 5000);
+    const opened = s().search.open;
     const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
     setValue.call(input, "Mark as Finished");
     input.dispatchEvent(new Event("input", { bubbles: true }));
     const selected = await until("Mark as Finished selected", () => {
-      const el = document.querySelector<HTMLElement>('[cmdk-item][data-selected="true"]');
+      const el = document.querySelector<HTMLElement>('[data-testid="command-item"][data-active="true"]');
       return el?.dataset.commandId === "book.finished" ? el : null;
     }, 5000);
     input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     const finished = await until("book finished", async () => (await books()).find((b) => b.id === id)?.reading_state === "finished", 5000).catch(() => false);
-    // The exit animation, and so the unmount, stalls while the window is hidden; data-state flips at once.
-    const dialogClosed = () => {
-      const dialog = document.querySelector("[cmdk-input]")?.closest<HTMLElement>('[role="dialog"]');
-      return !dialog || dialog.dataset.state === "closed";
-    };
-    const closed = await until("palette closed", () => !s().paletteOpen && dialogClosed(), 3000).catch(() => false);
+    const closed = await until("command field closed", () => !s().search.open && !document.querySelector('[data-testid="command-input"]'), 3000).catch(() => false);
     const runs = (commandRuns["book.finished"] ?? 0) - before;
     await s().closeBook();
     return { opened, selected: selected.dataset.commandId, runs, finished, closed };
@@ -351,18 +346,18 @@ async function watchLive(m3: M3Config): Promise<Report> {
     const statesBefore = new Map((await books()).map((b) => [b.id, b.reading_state]));
     const before = commandRuns["book.finished"] ?? 0;
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
-    const input = await until("palette input", () => document.querySelector<HTMLInputElement>("[cmdk-input]"), 5000);
+    const input = await until("library search field", () => document.querySelector<HTMLInputElement>('[data-testid="library-search-input"]'), 5000);
     const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
     setValue.call(input, "Mark as Finished");
     input.dispatchEvent(new Event("input", { bubbles: true }));
     const selected = await until("Mark as Finished selected", () => {
-      const el = document.querySelector<HTMLElement>('[cmdk-item][data-selected="true"]');
+      const el = document.querySelector<HTMLElement>('[data-testid="command-item"][data-active="true"]');
       return el?.dataset.commandId === "book.finished" ? el : null;
     }, 5000);
     const label = selected.textContent ?? "";
     input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     const finished = await until("focused book finished", async () => (await books()).find((b) => b.id === id)?.reading_state === "finished", 5000).catch(() => false);
-    await until("palette closed", () => !s().paletteOpen, 3000).catch(() => false);
+    await until("search field closed", () => !s().search.open, 3000).catch(() => false);
     const changed = (await books()).filter((b) => statesBefore.get(b.id) !== b.reading_state).map((b) => b.id);
     const runs = (commandRuns["book.finished"] ?? 0) - before;
     return { focused, label, namesBook: label.includes(`: ${(await books()).find((b) => b.id === id)?.title}`), runs, finished, changed, expected: [id] };

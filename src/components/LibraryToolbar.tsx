@@ -1,11 +1,12 @@
 import { useMemo } from "react";
-import { Moon, Plus, Search, Sun } from "lucide-react";
+import { Moon, Plus, Sun } from "lucide-react";
 import type { LibraryView, SortKey } from "@/lib/api";
 import { pickAndImport } from "@/lib/importing";
 import { authorsOf, DEFAULT_VIEW, hasFilters } from "@/lib/libraryView";
 import { useApp } from "@/lib/store";
 import { useResolvedTheme } from "@/lib/theme";
 import { Button } from "@/components/ui/button";
+import { OmniboxInput } from "./Omnibox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const ANY = "any";
@@ -48,20 +49,12 @@ function ThemeToggle() {
 }
 
 export function LibraryTopBar({ title }: { title: string }) {
-  const openSearch = useApp((s) => s.setLibrarySearchOpen);
   return (
     <header data-tauri-drag-region className="flex h-[52px] shrink-0 items-center gap-3 border-b px-6">
       <h1 data-tauri-drag-region className="flex-1 truncate text-[15px] font-semibold">
         {title}
       </h1>
-      <button
-        onClick={() => openSearch(true)}
-        className="flex h-7 w-[220px] items-center gap-1.5 rounded-md bg-muted px-2.5 text-[13px] text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        aria-label="Search library"
-      >
-        <Search className="size-3.5" />
-        Search
-      </button>
+      <OmniboxInput className="w-[220px]" />
       <ThemeToggle />
       <Button variant="ghost" size="icon-sm" className="size-7" aria-label="Import" onClick={() => void pickAndImport()}>
         <Plus />

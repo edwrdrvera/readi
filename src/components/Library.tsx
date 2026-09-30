@@ -1,11 +1,13 @@
 import { useMemo } from "react";
 import { applyView, continueReading, effectiveView } from "@/lib/libraryView";
 import { useApp } from "@/lib/store";
+import { cn } from "@/lib/utils";
 import { BookCard, Cover, percentLabel } from "./BookCard";
 import { BookInfoPanel } from "./BookInfoPanel";
 import { DrawerTable } from "./DrawerTable";
 import { LibrarySidebar } from "./LibrarySidebar";
 import { LibraryFilters, LibraryTopBar } from "./LibraryToolbar";
+import { OmniboxProvider, OmniboxResults } from "./Omnibox";
 
 function ContinueReading() {
   const books = useApp((s) => s.books);
@@ -39,6 +41,7 @@ export function Library() {
   const books = useApp((s) => s.books);
   const stored = useApp((s) => s.uiSettings.library);
   const collections = useApp((s) => s.collections);
+  const searching = useApp((s) => s.search.open);
   const view = useMemo(() => effectiveView(stored), [stored]);
   const shown = useMemo(() => applyView(books, view), [books, view]);
   const collection = collections.find((c) => c.id === view.collection_id);
@@ -50,9 +53,11 @@ export function Library() {
     <div className="flex h-full">
       <LibrarySidebar />
       <main className="flex min-w-0 flex-1 flex-col">
-        <LibraryTopBar title={title} />
-        <LibraryFilters />
-        <div className="flex-1 overflow-y-auto px-10 pt-5 pb-10">
+        <OmniboxProvider scope="library">
+          <LibraryTopBar title={title} />
+          {searching ? <OmniboxResults /> : <LibraryFilters />}
+        </OmniboxProvider>
+        <div className={cn("flex-1 overflow-y-auto px-10 pt-5 pb-10", searching && "hidden")}>
           {!collection && !drawer && <ContinueReading />}
           {empty ? (
             <p className="text-[13px] text-muted-foreground">{empty}</p>

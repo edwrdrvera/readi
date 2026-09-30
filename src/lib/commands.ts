@@ -35,8 +35,8 @@ export interface Command {
   shortcuts: Shortcut[];
   /** Plain navigation keys that a focused control (button, radio group) may own. */
   yieldsToControls?: boolean;
-  /** False keeps a command out of the palette. */
-  palette?: boolean;
+  /** False keeps a command out of the actions list; a function decides per context. */
+  palette?: boolean | ((ctx: CommandContext) => boolean);
   when(ctx: CommandContext): boolean;
   run(ctx: CommandContext): void | Promise<void>;
 }
@@ -103,18 +103,28 @@ export function openBookSearch(opener: Element | null = document.activeElement) 
   });
 }
 
-let librarySearchOpener: HTMLElement | null = null;
+let searchOpener: HTMLElement | null = null;
+const SEARCH_INPUT = '[data-testid="library-search-input"], [data-testid="command-input"]';
 
-export function openLibrarySearch(opener: Element | null = document.activeElement) {
-  librarySearchOpener = opener instanceof HTMLElement ? opener : null;
-  useApp.getState().setLibrarySearchOpen(true);
+/** Opens the search field: the Library's in the Library, the toolbar's in the reader. */
+export function focusSearch(opener: Element | null = document.activeElement) {
+  if (!(opener instanceof Element && opener.matches(SEARCH_INPUT))) searchOpener = opener instanceof HTMLElement ? opener : null;
+  useApp.getState().setSearch({ open: true });
+  requestAnimationFrame(() => {
+    const input = document.querySelector<HTMLInputElement>(SEARCH_INPUT);
+    input?.focus();
+    input?.select();
+  });
 }
 
-/** Focus target when library search closes without opening a book. */
-export function takeLibrarySearchOpener(): HTMLElement | null {
-  const target = librarySearchOpener?.isConnected ? librarySearchOpener : readingRegion();
-  librarySearchOpener = null;
-  return target;
+/** Clears the field and restores the grid or the title. */
+export function closeSearch({ restoreFocus }: { restoreFocus: boolean }) {
+  useApp.getState().setSearch({ open: false, query: "" });
+  const target = searchOpener?.isConnected ? searchOpener : readingRegion();
+  searchOpener = null;
+  const input = document.querySelector<HTMLInputElement>(SEARCH_INPUT);
+  if (document.activeElement === input) input?.blur();
+  if (restoreFocus) requestAnimationFrame(() => target?.focus());
 }
 
 /** Escape: the note editor, then the highlight popover, then an unpinned sidebar. */
@@ -174,28 +184,14 @@ export function closeSettings() {
   requestAnimationFrame(() => target?.focus());
 }
 
-let paletteOpener: HTMLElement | null = null;
-
-export function openPalette(opener: Element | null = document.activeElement) {
-  paletteOpener = opener instanceof HTMLElement ? opener : null;
-  useApp.getState().setPaletteOpen(true);
-}
-
-/** Focus target when the palette closes. */
-export function takePaletteOpener(): HTMLElement | null {
-  const target = paletteOpener?.isConnected ? paletteOpener : readingRegion();
-  paletteOpener = null;
-  return target;
-}
-
 export const commands: Command[] = [
   {
     id: "palette.open",
-    label: "Command Palette",
+    label: "Search and Actions",
     shortcuts: [{ key: "k", meta: true }],
     palette: false,
-    when: () => true,
-    run: () => openPalette(),
+    when: (ctx) => ctx.screen !== "settings",
+    run: () => focusSearch(),
   },
   {
     id: "settings.toggle",
@@ -216,15 +212,22 @@ export const commands: Command[] = [
     id: "search.book",
     label: "Find in Book",
     shortcuts: [{ key: "f", meta: true }],
-    when: (ctx) => ctx.screen === "reader",
-    run: () => openBookSearch(),
+    // In the Library ⌘F searches the library.
+    palette: (ctx) => ctx.screen === "reader",
+    when: (ctx) => ctx.screen !== "settings",
+    run: (ctx) => (ctx.screen === "reader" ? openBookSearch() : focusSearch()),
   },
   {
     id: "search.library",
     label: "Search Library",
     shortcuts: [{ key: "f", meta: true, shift: true }],
     when: () => true,
-    run: () => openLibrarySearch(),
+    run: async (ctx) => {
+      const s = useApp.getState();
+      if (ctx.screen === "reader") await s.closeBook();
+      if (ctx.screen === "settings") await s.showLibrary();
+      focusSearch();
+    },
   },
   {
     id: "bookmark.add",
@@ -346,15 +349,22 @@ export function paletteCommands(ctx: CommandContext): Command[] {
   return out;
 }
 
-/** Everything the palette lists right now: registry commands that apply, then contextual ones. */
+const listed = (c: Command, ctx: CommandContext) => (typeof c.palette === "function" ? c.palette(ctx) : c.palette !== false);
+
+/** Every action that applies right now: registry commands, then contextual ones. */
 export function paletteItems(ctx: CommandContext = commandContext()): Command[] {
-  return [...commands.filter((c) => c.palette !== false && c.when(ctx)), ...paletteCommands(ctx)];
+  return [...commands.filter((c) => listed(c, ctx) && c.when(ctx)), ...paletteCommands(ctx)];
 }
 
-/** Closes the palette, then runs the chosen command once. */
+/** Actions whose label contains every word of the query. */
+export function matchCommands(query: string, ctx: CommandContext = commandContext()): Command[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  return paletteItems(ctx).filter((c) => words.every((w) => c.label.toLowerCase().includes(w)));
+}
+
+/** Runs an action chosen from the search field, once. */
 export function runFromPalette(command: Command) {
   const ctx = commandContext();
-  useApp.getState().setPaletteOpen(false);
   if (command.when(ctx)) execute(command, ctx);
 }
 
