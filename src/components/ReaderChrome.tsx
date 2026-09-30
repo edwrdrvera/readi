@@ -70,7 +70,7 @@ export function ReaderChrome({ detail }: { detail: BookDetail }) {
       ref={bar}
       data-visible={shown}
       data-tauri-drag-region
-      className="z-20 flex h-[52px] shrink-0 items-center gap-1.5 border-b bg-chrome pr-3.5 pl-[78px] text-[13px] backdrop-blur transition-opacity duration-200 data-[visible=false]:pointer-events-none data-[visible=false]:opacity-0"
+      className="z-20 flex h-[52px] shrink-0 items-center gap-1.5 border-b bg-chrome pr-3.5 pl-[92px] text-[13px] backdrop-blur transition-opacity duration-200 data-[visible=false]:pointer-events-none data-[visible=false]:opacity-0"
     >
       <Button variant="ghost" size="icon-sm" className={ICON} onClick={() => void closeBook()} aria-label="Back to library">
         <ChevronLeft />
