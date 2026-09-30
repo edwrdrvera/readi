@@ -66,3 +66,8 @@ export const hasFilters = (view: LibraryView) => view.author !== null || view.re
 export const effectiveView = (view: LibraryView): LibraryView =>
   view.collection_id === null && view.format === null ? { ...view, format: "epub" } : view;
 
+/** Most recently opened EPUB the user is partway through. */
+export const continueReading = (books: BookSummary[]): BookSummary | undefined =>
+  books
+    .filter((b) => b.format === "epub" && b.reading_state === "reading" && b.opened_at !== null)
+    .reduce<BookSummary | undefined>((best, b) => (best && best.opened_at! >= b.opened_at! ? best : b), undefined);

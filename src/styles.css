@@ -72,6 +72,7 @@
 
 @theme inline {
   --font-sans: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-serif: ui-serif, "New York", Georgia, serif;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-muted: var(--muted);
