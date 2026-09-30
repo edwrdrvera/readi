@@ -34,6 +34,8 @@
   --destructive: #c4251c;
   --reader-bg: #ffffff;
   --chrome: rgb(251 251 253 / 0.92);
+  --segment: #ffffff;
+  --segment-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 }
 [data-theme="dark"] {
@@ -56,6 +58,8 @@
   --destructive: #ff6b61;
   --reader-bg: #1c1c1e;
   --chrome: rgb(28 28 30 / 0.92);
+  --segment: #45454c;
+  --segment-shadow: 0 1px 2px rgb(0 0 0 / 0.45), inset 0 0 0 1px rgb(255 255 255 / 0.06);
 }
 [data-theme="sepia"] {
   color-scheme: light;
@@ -77,10 +81,13 @@
   --destructive: #a3261c;
   --reader-bg: #f4ecd8;
   --chrome: rgb(244 236 216 / 0.94);
+  --segment: #fbf5e6;
+  --segment-shadow: 0 1px 2px rgb(74 56 41 / 0.18);
 }
 
 @theme inline {
-  --shadow-segment: 0 1px 2px rgb(0 0 0 / 0.12);
+  --shadow-segment: var(--segment-shadow);
+  --color-segment: var(--segment);
   --font-sans: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --font-serif: ui-serif, "New York", Georgia, serif;
   --color-background: var(--background);

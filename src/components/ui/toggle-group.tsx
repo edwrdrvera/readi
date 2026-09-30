@@ -3,7 +3,7 @@ import { ToggleGroup as ToggleGroupPrimitive } from "radix-ui";
 import { cn } from "@/lib/utils";
 
 const itemClass =
-  "inline-flex h-7 flex-1 basis-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-2.5 text-xs text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 data-[state=on]:bg-popover data-[state=on]:text-foreground data-[state=on]:shadow-segment";
+  "inline-flex h-7 flex-1 basis-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-2.5 text-xs text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 data-[state=on]:bg-segment data-[state=on]:text-foreground data-[state=on]:shadow-segment";
 
 function ToggleGroup({ className, ...props }: React.ComponentProps<typeof ToggleGroupPrimitive.Root>) {
   return (
