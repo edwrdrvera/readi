@@ -24,6 +24,8 @@ export interface BookSummary {
   /** Derived: at least one location is readable. False means Missing. */
   available: boolean;
   has_cover: boolean;
+  /** Last saved reading position, 0..1. Null until the book is opened. */
+  percent: number | null;
   /** Manual memberships plus derived watched-folder collections. */
   collection_ids: number[];
 }

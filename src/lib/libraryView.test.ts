@@ -17,6 +17,7 @@ function book(id: number, over: Partial<BookSummary> = {}): BookSummary {
     opened_at: null,
     available: true,
     has_cover: false,
+  percent: null,
     collection_ids: [],
     ...over,
   };
