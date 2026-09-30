@@ -87,7 +87,7 @@ export function SearchTab({ detail }: { detail: BookDetail }) {
       )}
       {status !== "idle" && status !== "loading" && (
         <div data-testid="search-status" data-state={status} role="status" className="px-1 text-xs text-muted-foreground">
-          {status === "indexing" && "Still indexing — results may be incomplete"}
+          {status === "indexing" && "Still indexing. Results may be incomplete"}
           {status === "no_text" && "This book has no searchable text (for example, a scanned PDF)"}
           {status === "failed" && (
             <span className="flex items-center gap-2 text-destructive">

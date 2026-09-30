@@ -6,6 +6,7 @@ import { api, type Availability, type BookSummary } from "@/lib/api";
 import { extraction } from "@/lib/extraction";
 import { closeBookInfo } from "@/lib/commands";
 import { useApp } from "@/lib/store";
+import { useExit } from "@/lib/useExit";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
@@ -20,8 +21,8 @@ const Heading = ({ children }: { children: React.ReactNode }) => <h3 className="
 
 /** Book details docked beside the grid. */
 export function BookInfoPanel() {
-  const id = useApp((s) => s.infoBookId);
-  const book = useApp((s) => s.books.find((b) => b.id === s.infoBookId));
+  const { shown: id, leaving } = useExit(useApp((s) => s.infoBookId), 150);
+  const book = useApp((s) => s.books.find((b) => b.id === id));
   const locations = useApp((s) => (id === null ? undefined : s.locations[id]));
   const locateBook = useApp((s) => s.locateBook);
   const openBook = useApp((s) => s.openBook);
@@ -38,7 +39,7 @@ export function BookInfoPanel() {
   const readable = locations?.find((l) => l.availability === "available");
 
   return (
-    <aside aria-label="Book info" data-testid="book-info" className="info-panel flex w-[300px] shrink-0 flex-col border-l bg-background">
+    <aside aria-label="Book info" data-testid="book-info" data-leaving={leaving || undefined} inert={leaving} className="info-panel flex w-[300px] shrink-0 flex-col border-l bg-background">
       <header className="flex h-[52px] shrink-0 items-center justify-between border-b pr-2 pl-[18px]">
         <h2 className="text-[13px] font-semibold">Info</h2>
         <Button variant="ghost" size="icon-sm" className="size-7" aria-label="Close info" onClick={closeBookInfo}>

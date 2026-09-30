@@ -15,7 +15,7 @@ function Entry({ active, icon, label, count, onClick, children }: { active: bool
         aria-current={active ? "page" : undefined}
         onClick={onClick}
         className={cn(
-          "flex h-[30px] min-w-0 flex-1 items-center gap-2.5 rounded-md px-2.5 text-left text-[13px] outline-none hover:bg-background/60 focus-visible:ring-2 focus-visible:ring-ring [&_svg]:size-4 [&_svg]:shrink-0",
+          "pressable flex h-[30px] min-w-0 flex-1 items-center gap-2.5 rounded-md px-2.5 text-left text-[13px] outline-none hover:bg-background/60 focus-visible:ring-2 focus-visible:ring-ring [&_svg]:size-4 [&_svg]:shrink-0",
           active && "bg-accent text-accent-foreground hover:bg-accent",
         )}
       >

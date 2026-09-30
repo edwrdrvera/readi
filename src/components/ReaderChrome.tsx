@@ -97,9 +97,9 @@ export function ReaderChrome({ detail }: { detail: BookDetail }) {
           </div>
         </OmniboxProvider>
       ) : (
-        <span data-tauri-drag-region className="mx-2 min-w-0 flex-1 truncate text-center">
-          <span className="font-semibold">{detail.book.title}</span>
-          {section && <span className="text-muted-foreground"> — {section}</span>}
+        <span data-tauri-drag-region className="mx-2 flex min-w-0 flex-1 items-baseline justify-center gap-2.5">
+          <span data-tauri-drag-region className="truncate font-semibold">{detail.book.title}</span>
+          {section && <span data-tauri-drag-region className="min-w-0 shrink truncate text-muted-foreground">{section}</span>}
         </span>
       )}
       {saveStatus?.kind === "error" && (

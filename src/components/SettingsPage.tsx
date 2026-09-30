@@ -46,7 +46,7 @@ export function SettingsPage() {
                   e.preventDefault();
                   document.getElementById(id)?.scrollIntoView({ block: "start" });
                 }}
-                className="flex h-[30px] items-center rounded-md px-2.5 text-[13px] text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                className="pressable flex h-[30px] items-center rounded-md px-2.5 text-[13px] text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {label}
               </a>
