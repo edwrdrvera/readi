@@ -18,7 +18,7 @@ import {
 import { extraction } from "./extraction";
 import { onFileChanged } from "./fileChanged";
 import { upsertJob } from "./jobs";
-import { DEFAULT_VIEW, matchesView } from "./libraryView";
+import { DEFAULT_VIEW, effectiveView, hasFilters, matchesView } from "./libraryView";
 import { DEFAULT_PREFS, type Overrides, type PrefKey, type Prefs } from "./prefs";
 import type { SaveStatus } from "./progress";
 import { applyAnchorStates, byReadingOrder } from "./annotations";
@@ -254,11 +254,11 @@ export const useApp = create<AppState>((set, get) => ({
   focusBook(id) {
     set({ focusedBookId: id });
     const book = get().books.find((b) => b.id === id);
-    const view = get().uiSettings.library;
-    if (book && !matchesView(book, view)) {
-      void get().setView({ ...DEFAULT_VIEW, sort: view.sort });
-      get().notify(`Filters were cleared to show “${book.title}”`);
-    }
+    const view = effectiveView(get().uiSettings.library);
+    if (!book || matchesView(book, view)) return;
+    const onlyNav = view.collection_id === null && !hasFilters(view);
+    void get().setView({ ...DEFAULT_VIEW, sort: view.sort, format: book.format });
+    if (!onlyNav) get().notify(`Filters were cleared to show “${book.title}”`);
   },
   async loadLocations(id) {
     const locations = await api.getLocations(id);

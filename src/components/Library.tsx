@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { applyView } from "@/lib/libraryView";
+import { applyView, effectiveView } from "@/lib/libraryView";
 import { useApp } from "@/lib/store";
 import { BookCard } from "./BookCard";
 import { LibrarySidebar } from "./LibrarySidebar";
@@ -7,10 +7,11 @@ import { LibraryToolbar } from "./LibraryToolbar";
 
 export function Library() {
   const books = useApp((s) => s.books);
-  const view = useApp((s) => s.uiSettings.library);
+  const stored = useApp((s) => s.uiSettings.library);
   const collections = useApp((s) => s.collections);
+  const view = useMemo(() => effectiveView(stored), [stored]);
   const shown = useMemo(() => applyView(books, view), [books, view]);
-  const title = collections.find((c) => c.id === view.collection_id)?.name ?? "Library";
+  const title = collections.find((c) => c.id === view.collection_id)?.name ?? (view.format === "pdf" ? "Drawer" : "Library");
   return (
     <div className="flex h-full">
       <LibrarySidebar />

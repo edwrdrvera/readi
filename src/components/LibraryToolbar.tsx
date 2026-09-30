@@ -53,7 +53,6 @@ export function LibraryToolbar({ title }: { title: string }) {
         </Button>
       </div>
       <div className="flex flex-wrap items-center gap-2" role="toolbar" aria-label="Filters">
-        <Filter label="Format" value={view.format} options={[["epub", "EPUB"], ["pdf", "PDF"]]} onChange={(format) => set({ format })} />
         <Filter label="Author" value={view.author} options={authors.map((a) => [a, a])} onChange={(author) => set({ author })} />
         <Filter
           label="State"
@@ -63,7 +62,7 @@ export function LibraryToolbar({ title }: { title: string }) {
         />
         <Filter label="Availability" value={view.availability} options={[["available", "Available"], ["missing", "Missing"]]} onChange={(availability) => set({ availability })} />
         {hasFilters(view) && (
-          <Button variant="link" size="sm" onClick={() => set({ ...DEFAULT_VIEW, sort: view.sort, collection_id: view.collection_id })}>
+          <Button variant="link" size="sm" onClick={() => set({ ...DEFAULT_VIEW, sort: view.sort, format: view.format, collection_id: view.collection_id })}>
             Clear filters
           </Button>
         )}

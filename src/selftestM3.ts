@@ -201,6 +201,7 @@ async function watchLive(m3: M3Config): Promise<Report> {
     const copies = await bookBySha(sha.dup);
     const locs = await api.getLocations(ids.dup);
     await s().refreshLibrary();
+    await s().setView({ collection_id: null, format: "pdf" });
     const cards = await until("dup card", () => document.querySelectorAll(`[data-book-id="${ids.dup}"]`).length || null, 5000).catch(() => 0);
     return { books: copies.length, locations: locs.map((l) => ({ path: l.path, kind: l.kind, availability: l.availability })), cards };
   });

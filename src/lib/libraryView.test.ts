@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BookSummary, LibraryView } from "./api";
-import { applyView, authorsOf, DEFAULT_VIEW } from "./libraryView";
+import { applyView, authorsOf, DEFAULT_VIEW, effectiveView } from "./libraryView";
 
 function book(id: number, over: Partial<BookSummary> = {}): BookSummary {
   return {
@@ -17,7 +17,7 @@ function book(id: number, over: Partial<BookSummary> = {}): BookSummary {
     opened_at: null,
     available: true,
     has_cover: false,
-  percent: null,
+    percent: null,
     collection_ids: [],
     ...over,
   };
@@ -75,4 +75,12 @@ describe("sorts", () => {
 
 it("authorsOf lists distinct authors in order", () => {
   expect(authorsOf([book(1, { authors: ["b", "A"] }), book(2, { authors: ["A"] })])).toEqual(["A", "b"]);
+});
+
+describe("effectiveView", () => {
+  it("opens a pre-nav stored view on Library", () => {
+    expect(effectiveView({ ...DEFAULT_VIEW }).format).toBe("epub");
+    expect(effectiveView({ ...DEFAULT_VIEW, collection_id: 3 }).format).toBeNull();
+    expect(effectiveView({ ...DEFAULT_VIEW, format: "pdf" }).format).toBe("pdf");
+  });
 });
