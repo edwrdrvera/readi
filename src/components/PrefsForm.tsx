@@ -13,10 +13,21 @@ interface Props {
   /** Keys that differ from the defaults for this book. */
   overridden?: Partial<Record<PrefKey, boolean>>;
   onClear?(key: PrefKey): void;
+  /** Label left, control right, hairline between rows: the Settings page's layout. */
+  inline?: boolean;
 }
 
-function Row({ label, prefKey, overridden, onClear, children }: { label: string; prefKey: PrefKey; overridden?: boolean; onClear?(k: PrefKey): void; children: ReactNode }) {
+function Row({ label, prefKey, overridden, onClear, inline, children }: { label: string; prefKey: PrefKey; overridden?: boolean; onClear?(k: PrefKey): void; inline?: boolean; children: ReactNode }) {
   const id = `pref-${prefKey}`;
+  if (inline)
+    return (
+      <div className="flex min-h-12 items-center justify-between gap-4 border-b py-2" role="group" aria-labelledby={id}>
+        <span id={id} className="text-[13px]">
+          {label}
+        </span>
+        {children}
+      </div>
+    );
   return (
     <div className="flex flex-col gap-1.5" role="group" aria-labelledby={id}>
       <div className="flex items-center justify-between text-xs">
@@ -47,14 +58,14 @@ function Choice<T extends string>({ value, options, onChange, label }: { value: 
   );
 }
 
-export function PrefsForm({ values, groups, onChange, overridden = {}, onClear }: Props) {
+export function PrefsForm({ values, groups, onChange, overridden = {}, onClear, inline }: Props) {
   const row = (key: PrefKey, label: string, children: ReactNode) => (
-    <Row key={key} label={label} prefKey={key} overridden={overridden[key]} onClear={onClear}>
+    <Row key={key} label={label} prefKey={key} overridden={overridden[key]} onClear={onClear} inline={inline}>
       {children}
     </Row>
   );
   return (
-    <div className="flex flex-col gap-4">
+    <div className={inline ? "flex flex-col" : "flex flex-col gap-4"}>
       {groups.includes("layout") && (
         <>
           {row("reading_mode", "Reading mode", <Choice label="Reading mode" value={values.reading_mode} options={[["vertical", "Vertical"], ["horizontal", "Horizontal"]]} onChange={(v) => onChange("reading_mode", v)} />)}

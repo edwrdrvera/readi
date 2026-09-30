@@ -40,7 +40,9 @@ const CANCELLED_NOTICE_MS = 4000;
 
 export type SidebarTab = "contents" | "annotations" | "search";
 
-type Screen = { name: "library" } | { name: "reader"; detail: BookDetail };
+type Page = { name: "library" } | { name: "reader"; detail: BookDetail };
+/** Settings remembers the page it covers; a reader underneath stays mounted at its position. */
+export type Screen = Page | { name: "settings"; back: Page };
 
 /** Where the open reader is, for the Contents sidebar. */
 export interface ReaderPosition {
@@ -74,7 +76,6 @@ interface AppState {
   librarySearchOpen: boolean;
   /** The open book's search query, kept while the sidebar closes for a jump. */
   bookQuery: string;
-  settingsOpen: boolean;
   aaOpen: boolean;
   position: ReaderPosition;
   progress: ReadingProgress;
@@ -138,7 +139,11 @@ interface AppState {
   setOverride<K extends PrefKey>(key: K, value: Prefs[K] | null): Promise<void>;
   resetOverrides(): Promise<void>;
   setSidebar(s: Partial<AppState["sidebar"]>): void;
-  setSettingsOpen(open: boolean): void;
+  openSettings(): void;
+  /** Back to the page Settings covered. */
+  closeSettings(): void;
+  /** Leaves Settings for the Library, closing a book it covered. */
+  showLibrary(): Promise<void>;
   setAaOpen(open: boolean): void;
   setPosition(p: ReaderPosition): void;
   setProgress(p: Partial<ReadingProgress>): void;
@@ -197,7 +202,10 @@ function undoMessage(a: PendingAction, s: AppState): string {
   }
 }
 
-const openBookId = (s: AppState) => (s.screen.name === "reader" ? s.screen.detail.book.id : null);
+/** The book in the reader, including one Settings covers. */
+export const readerDetail = (screen: Screen) =>
+  screen.name === "reader" ? screen.detail : screen.name === "settings" && screen.back.name === "reader" ? screen.back.detail : null;
+const openBookId = (s: AppState) => readerDetail(s.screen)?.book.id ?? null;
 
 export const useApp = create<AppState>((set, get) => ({
   screen: { name: "library" },
@@ -212,7 +220,6 @@ export const useApp = create<AppState>((set, get) => ({
   editingId: null,
   librarySearchOpen: false,
   bookQuery: "",
-  settingsOpen: false,
   aaOpen: false,
   position: { tocHref: null, sectionIndex: null },
   progress: { percent: null, pdfPage: null, pdfPageLabel: null },
@@ -511,8 +518,21 @@ export const useApp = create<AppState>((set, get) => ({
   setSidebar(s) {
     set({ sidebar: { ...get().sidebar, ...s } });
   },
-  setSettingsOpen(settingsOpen) {
-    set({ settingsOpen });
+  openSettings() {
+    const screen = get().screen;
+    if (screen.name !== "settings") set({ screen: { name: "settings", back: screen }, aaOpen: false });
+  },
+  closeSettings() {
+    const screen = get().screen;
+    if (screen.name === "settings") set({ screen: screen.back });
+  },
+  async showLibrary() {
+    const screen = get().screen;
+    if (screen.name !== "settings") return;
+    if (screen.back.name === "reader") {
+      set({ screen: screen.back });
+      await get().closeBook();
+    } else set({ screen: screen.back });
   },
   setAaOpen(aaOpen) {
     set({ aaOpen });

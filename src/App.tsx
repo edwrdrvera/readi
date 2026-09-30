@@ -7,7 +7,7 @@ import { extraction } from "./lib/extraction";
 import { handleKeydown, runCommand } from "./lib/commands";
 import { importPaths } from "./lib/importing";
 import { resolvePrefs } from "./lib/prefs";
-import { useApp } from "./lib/store";
+import { readerDetail, useApp } from "./lib/store";
 import { useResolvedTheme } from "./lib/theme";
 import { EpubReader } from "./reader/EpubReader";
 import { PdfReader } from "./reader/PdfReader";
@@ -23,7 +23,7 @@ import { Library } from "@/components/Library";
 import { ReaderChrome } from "@/components/ReaderChrome";
 import { ReaderPage } from "@/components/ReaderPage";
 import { ReaderSettingsPanel } from "@/components/ReaderSettingsPanel";
-import { SettingsSheet } from "@/components/SettingsSheet";
+import { SettingsPage } from "@/components/SettingsPage";
 import { UndoBar } from "@/components/UndoBar";
 
 function useReaderPrefs() {
@@ -32,10 +32,13 @@ function useReaderPrefs() {
   return useMemo(() => resolvePrefs(defaults, overrides), [defaults, overrides]);
 }
 
-function Reader() {
-  const screen = useApp((s) => s.screen);
-  if (screen.name !== "reader") return null;
-  return <OpenBook key={screen.detail.book.id} detail={screen.detail} />;
+/** Settings covers the reader without unmounting it, so leaving Settings returns to the same position. */
+function Reader({ detail, covered }: { detail: BookDetail; covered: boolean }) {
+  return (
+    <div className={covered ? "invisible fixed inset-0" : "h-full"} inert={covered}>
+      <OpenBook key={detail.book.id} detail={detail} />
+    </div>
+  );
 }
 
 function OpenBook({ detail }: { detail: BookDetail }) {
@@ -76,6 +79,7 @@ function useDocumentTheme() {
 export default function App() {
   const screen = useApp((s) => s.screen);
   const notices = useApp((s) => s.notices);
+  const detail = readerDetail(screen);
   const [dragging, setDragging] = useState(false);
   useDocumentTheme();
 
@@ -109,8 +113,9 @@ export default function App() {
 
   return (
     <>
-      {screen.name === "library" ? <Library /> : <Reader />}
-      <SettingsSheet />
+      {screen.name === "library" && <Library />}
+      {screen.name === "settings" && <SettingsPage />}
+      {detail && <Reader detail={detail} covered={screen.name === "settings"} />}
       <BookInfoSheet />
       <UndoBar />
       <CollectionEditor />

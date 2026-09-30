@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Moon, Plus, Search, Settings, Sun } from "lucide-react";
+import { Moon, Plus, Search, Sun } from "lucide-react";
 import type { LibraryView, SortKey } from "@/lib/api";
 import { pickAndImport } from "@/lib/importing";
 import { authorsOf, DEFAULT_VIEW, hasFilters } from "@/lib/libraryView";
@@ -7,7 +7,6 @@ import { useApp } from "@/lib/store";
 import { useResolvedTheme } from "@/lib/theme";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { openSettings } from "./SettingsSheet";
 
 const ANY = "any";
 const TRIGGER = "h-7 max-w-44 gap-1.5 border-0 bg-transparent px-2 text-xs shadow-none hover:bg-muted";
@@ -66,9 +65,6 @@ export function LibraryTopBar({ title }: { title: string }) {
       <ThemeToggle />
       <Button variant="ghost" size="icon-sm" className="size-7" aria-label="Import" onClick={() => void pickAndImport()}>
         <Plus />
-      </Button>
-      <Button variant="ghost" size="icon-sm" className="size-7" aria-label="Settings" onClick={openSettings}>
-        <Settings />
       </Button>
     </header>
   );

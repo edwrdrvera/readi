@@ -6,7 +6,7 @@ import { useApp, type SidebarTab } from "./store";
 import { activeReader, type ReaderHandle } from "../reader/handle";
 
 export interface CommandContext {
-  screen: "library" | "reader";
+  screen: "library" | "reader" | "settings";
   format: Format | null;
   bookId: number | null;
   /** The book that book actions apply to: the open book in the reader, the focused card in the Library. */
@@ -151,6 +151,21 @@ const themeCommand = (theme: ThemePref, n: number | null): Command => ({
   run: (ctx) => setPref(ctx, "theme", theme),
 });
 
+let settingsOpener: HTMLElement | null = null;
+
+export function openSettings(opener: Element | null = document.activeElement) {
+  settingsOpener = opener instanceof HTMLElement ? opener : null;
+  useApp.getState().openSettings();
+  requestAnimationFrame(() => document.getElementById("settings-title")?.focus());
+}
+
+export function closeSettings() {
+  useApp.getState().closeSettings();
+  const target = settingsOpener?.isConnected ? settingsOpener : readingRegion();
+  settingsOpener = null;
+  requestAnimationFrame(() => target?.focus());
+}
+
 let paletteOpener: HTMLElement | null = null;
 
 export function openPalette(opener: Element | null = document.activeElement) {
@@ -173,6 +188,13 @@ export const commands: Command[] = [
     palette: false,
     when: () => true,
     run: () => openPalette(),
+  },
+  {
+    id: "settings.toggle",
+    label: "Settings",
+    shortcuts: [{ key: ",", meta: true }],
+    when: () => true,
+    run: (ctx) => (ctx.screen === "settings" ? closeSettings() : openSettings()),
   },
   { id: "library.import", label: "Import…", shortcuts: [{ key: "o", meta: true, viaMenu: true }], when: () => true, run: () => pickAndImport() },
   {
@@ -256,9 +278,10 @@ export const commands: Command[] = [
     // Popovers and sheets dismiss themselves and mark the event handled.
     when: (ctx) => {
       const s = useApp.getState();
+      if (ctx.screen === "settings") return true;
       return ctx.screen === "reader" && (s.editingId !== null || s.selection !== null || (s.sidebar.open && !s.sidebar.pinned));
     },
-    run: () => void dismissForemost(),
+    run: (ctx) => (ctx.screen === "settings" ? closeSettings() : void dismissForemost()),
   },
 ];
 

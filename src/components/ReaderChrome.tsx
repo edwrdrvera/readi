@@ -2,14 +2,13 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import { BookmarkPlus, ChevronLeft, PanelLeft, Search, Settings, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { BookDetail } from "@/lib/api";
-import { closeSidebar, goBack, openBookSearch, openSidebar } from "@/lib/commands";
+import { closeSidebar, goBack, openBookSearch, openSettings, openSidebar } from "@/lib/commands";
 import { backHistory } from "@/lib/history";
 import { useApp } from "@/lib/store";
 import { activeTocItem, flattenToc } from "@/lib/toc";
 import { cn } from "@/lib/utils";
 import { activeReader } from "@/reader/handle";
 import { readerActivity } from "@/reader/activity";
-import { openSettings } from "./SettingsSheet";
 
 const HIDE_AFTER_MS = 2000;
 
@@ -31,12 +30,11 @@ export function ReaderChrome({ detail }: { detail: BookDetail }) {
   const sidebarOpen = useApp((s) => s.sidebar.open);
   const aaOpen = useApp((s) => s.aaOpen);
   const setAaOpen = useApp((s) => s.setAaOpen);
-  const settingsOpen = useApp((s) => s.settingsOpen);
   const bookId = detail.book.id;
   const backSize = useSyncExternalStore(backHistory.subscribe, () => backHistory.size(bookId));
   const alwaysShow = useApp((s) => s.uiSettings.always_show_controls);
   const selecting = useApp((s) => s.selection !== null || s.editingId !== null);
-  const held = aaOpen || settingsOpen || alwaysShow || selecting;
+  const held = aaOpen || alwaysShow || selecting;
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -126,7 +124,7 @@ export function ReaderChrome({ detail }: { detail: BookDetail }) {
       >
         Aa
       </Button>
-      <Button variant="ghost" size="icon-sm" className={ICON} aria-label="Settings" onClick={openSettings}>
+      <Button variant="ghost" size="icon-sm" className={ICON} aria-label="Settings" onClick={() => openSettings()}>
         <Settings />
       </Button>
     </header>

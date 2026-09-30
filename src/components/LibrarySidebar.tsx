@@ -1,5 +1,6 @@
-import { Archive, BookOpen, Folder, MoreHorizontal, Plus, Tag } from "lucide-react";
-import type { Collection, Format } from "@/lib/api";
+import { Archive, BookOpen, Folder, MoreHorizontal, Plus, Settings, Tag } from "lucide-react";
+import type { Collection, Format, LibraryView } from "@/lib/api";
+import { openSettings } from "@/lib/commands";
 import { effectiveView } from "@/lib/libraryView";
 import { useApp } from "@/lib/store";
 import { Button } from "@/components/ui/button";
@@ -26,10 +27,17 @@ function Entry({ active, icon, label, count, onClick, children }: { active: bool
   );
 }
 
+/** Nav rows leave Settings for the Library before changing the view. */
+const go = (patch: Partial<LibraryView>) => {
+  const s = useApp.getState();
+  void s.showLibrary();
+  void s.setView(patch);
+};
+
 function ManualEntry({ c, active }: { c: Collection; active: boolean }) {
   const s = useApp.getState();
   return (
-    <Entry active={active} icon={<Tag />} label={c.name} onClick={() => void s.setView({ collection_id: c.id, format: null })}>
+    <Entry active={active} icon={<Tag />} label={c.name} onClick={() => go({ collection_id: c.id, format: null })}>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" size="icon-sm" className="absolute right-1 size-6 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100" aria-label={`Actions for ${c.name}`}>
@@ -55,13 +63,13 @@ export function LibrarySidebar() {
   const collections = useApp((s) => s.collections);
   const books = useApp((s) => s.books);
   const view = effectiveView(useApp((s) => s.uiSettings.library));
-  const setView = useApp((s) => s.setView);
+  const inSettings = useApp((s) => s.screen.name === "settings");
   const setCollectionEditor = useApp((s) => s.setCollectionEditor);
   const manual = collections.filter((c) => c.kind === "manual");
   const derived = collections.filter((c) => c.kind === "derived");
-  const current = view.collection_id;
+  const current = inSettings ? undefined : view.collection_id;
   const count = (f: Format) => books.filter((b) => b.format === f).length;
-  const nav = (format: Format) => ({ active: current === null && view.format === format, count: count(format), onClick: () => void setView({ collection_id: null, format }) });
+  const nav = (format: Format) => ({ active: current === null && view.format === format, count: count(format), onClick: () => go({ collection_id: null, format }) });
   return (
     <nav aria-label="Collections" className="flex w-[220px] shrink-0 flex-col overflow-y-auto border-r bg-muted">
       <div data-tauri-drag-region className="h-[52px] shrink-0" />
@@ -86,11 +94,14 @@ export function LibrarySidebar() {
           <Label className="pt-5">Folders</Label>
           <ul className="flex flex-col gap-0.5 px-2.5 pb-4">
             {derived.map((c) => (
-              <Entry key={c.id} active={current === c.id} icon={<Folder />} label={c.name} onClick={() => void setView({ collection_id: c.id, format: null })} />
+              <Entry key={c.id} active={current === c.id} icon={<Folder />} label={c.name} onClick={() => go({ collection_id: c.id, format: null })} />
             ))}
           </ul>
         </>
       )}
+      <ul className="mt-auto flex flex-col px-2.5 pt-4 pb-3">
+        <Entry active={inSettings} icon={<Settings />} label="Settings" onClick={() => (inSettings ? undefined : openSettings())} />
+      </ul>
     </nav>
   );
 }
