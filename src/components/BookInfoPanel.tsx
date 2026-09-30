@@ -19,7 +19,6 @@ const AVAILABILITY: Record<Availability, { label: string; detail: string | null 
 
 const Heading = ({ children }: { children: React.ReactNode }) => <h3 className="text-[11px] font-semibold tracking-[.02em] text-muted-foreground">{children}</h3>;
 
-/** Book details docked beside the grid. */
 export function BookInfoPanel() {
   const { shown: id, leaving } = useExit(useApp((s) => s.infoBookId), 150);
   const book = useApp((s) => s.books.find((b) => b.id === id));

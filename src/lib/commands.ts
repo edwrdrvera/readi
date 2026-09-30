@@ -208,7 +208,6 @@ export const commands: Command[] = [
     id: "search.book",
     label: "Find in Book",
     shortcuts: [{ key: "f", meta: true }],
-    // In the Library ⌘F searches the library.
     palette: (ctx) => ctx.screen === "reader",
     when: (ctx) => ctx.screen !== "settings",
     run: (ctx) => (ctx.screen === "reader" ? openBookSearch() : focusSearch()),
@@ -360,7 +359,6 @@ export function matchCommands(query: string, ctx: CommandContext = commandContex
   return paletteItems(ctx).filter((c) => words.every((w) => c.label.toLowerCase().includes(w)));
 }
 
-/** Runs an action chosen from the search field, once. */
 export function runFromPalette(command: Command) {
   const ctx = commandContext();
   if (command.when(ctx)) execute(command, ctx);

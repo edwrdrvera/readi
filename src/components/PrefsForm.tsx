@@ -13,7 +13,6 @@ interface Props {
   /** Keys that differ from the defaults for this book. */
   overridden?: Partial<Record<PrefKey, boolean>>;
   onClear?(key: PrefKey): void;
-  /** Label left, control right, hairline between rows: the Settings page's layout. */
   inline?: boolean;
 }
 

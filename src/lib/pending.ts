@@ -13,7 +13,6 @@ export type HoldReason = "hover" | "hidden";
 export interface Scheduler<T> {
   /** Shows `action`; an action already showing commits first. */
   schedule(action: T): void;
-  /** Drops the showing action without committing it. */
   undo(): void;
   /** Commits the showing action and waits for every commit still running. */
   flush(): Promise<void>;
@@ -24,7 +23,6 @@ export interface Scheduler<T> {
 interface Options<T> {
   ms: number;
   commit(action: T): Promise<void>;
-  /** The action the bar shows, or null. */
   onChange(action: T | null): void;
 }
 

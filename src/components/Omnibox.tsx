@@ -110,7 +110,6 @@ type OmniboxState = ReturnType<typeof useOmniboxState>;
 const Ctx = createContext<OmniboxState | null>(null);
 const useOmnibox = () => useContext(Ctx)!;
 
-/** One search state shared by the field and the results it swaps in. */
 export function OmniboxProvider({ scope, children }: { scope: OmniboxScope; children: ReactNode }) {
   return <Ctx.Provider value={useOmniboxState(scope)}>{children}</Ctx.Provider>;
 }

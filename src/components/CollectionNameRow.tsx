@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { Tag } from "lucide-react";
 import { useApp } from "@/lib/store";
 
-/** Checks a collection name against the manual collections, ignoring `selfId`. */
 export function nameError(name: string, names: { id: number; name: string }[], selfId: number | null): string | null {
   const trimmed = name.trim();
   if (trimmed === "") return "Enter a name";

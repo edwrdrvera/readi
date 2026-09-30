@@ -2,7 +2,6 @@ import { useEffect } from "react";
 import { useApp } from "@/lib/store";
 import { useExit } from "@/lib/useExit";
 
-/** The one Undo bar, bottom centre, for the action waiting in store.pending. */
 export function UndoBar() {
   const current = useApp((s) => s.pending);
   const { shown: pending, leaving } = useExit(current, 180);

@@ -140,7 +140,6 @@ interface AppState {
   resetOverrides(): Promise<void>;
   setSidebar(s: Partial<AppState["sidebar"]>): void;
   openSettings(): void;
-  /** Back to the page Settings covered. */
   closeSettings(): void;
   /** Leaves Settings for the Library, closing a book it covered. */
   showLibrary(): Promise<void>;
@@ -205,7 +204,6 @@ function undoMessage(a: PendingAction, s: AppState): string {
   }
 }
 
-/** The book in the reader, including one Settings covers. */
 export const readerDetail = (screen: Screen) =>
   screen.name === "reader" ? screen.detail : screen.name === "settings" && screen.back.name === "reader" ? screen.back.detail : null;
 const openBookId = (s: AppState) => readerDetail(s.screen)?.book.id ?? null;

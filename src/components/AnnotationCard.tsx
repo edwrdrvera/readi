@@ -9,7 +9,6 @@ import { useApp } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { SWATCH } from "./HighlightPopover";
 
-/** The Annotations tab entry being edited: quote, colour, note, delete. */
 export function AnnotationCard({ annotation }: { annotation: Annotation }) {
   const { id } = annotation;
   const setEditing = useApp((s) => s.setEditing);

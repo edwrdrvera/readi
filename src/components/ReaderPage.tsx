@@ -37,7 +37,6 @@ function ReaderFooter({ detail }: { detail: BookDetail }) {
   );
 }
 
-/** The reading surface with paged-mode arrows and the progress footer. */
 export function ReaderPage({ detail, prefs, children }: { detail: BookDetail; prefs: Prefs; children: ReactNode }) {
   const paged = prefs.reading_mode === "horizontal";
   return (

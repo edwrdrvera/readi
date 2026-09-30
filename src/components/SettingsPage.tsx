@@ -18,7 +18,6 @@ export const SectionLabel = ({ id, children }: { id?: string; children: React.Re
   </h2>
 );
 
-/** Global reading defaults and library sources. Books with their own settings keep them. */
 export function SettingsPage() {
   const defaults = useApp((s) => s.defaults);
   const setDefault = useApp((s) => s.setDefault);
