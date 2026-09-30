@@ -148,6 +148,7 @@ interface AppState {
   setPosition(p: ReaderPosition): void;
   setProgress(p: Partial<ReadingProgress>): void;
   setSelection(s: SelectionInfo | null): void;
+  /** Editing opens the Annotations tab; closing the card closes a sidebar that editing opened. */
   setEditing(id: number | null): void;
   setSearch(patch: Partial<AppState["search"]>): void;
   setBookQuery(q: string): void;
@@ -184,6 +185,8 @@ const visible = () => ({
 const visibleAnnotations = (list: Annotation[]) => list.filter((a) => !hides("delete-annotation", a.id));
 /** Annotations taken out of the list while their deletion waits, to put back on undo. */
 const stashedAnnotations = new Map<number, Annotation>();
+
+let sidebarOpenedForNote = false;
 
 const quoted = (s: string) => `“${s}”`;
 
@@ -337,7 +340,8 @@ export const useApp = create<AppState>((set, get) => ({
     if (action.kind === "delete-annotation") {
       const a = get().annotations.find((x) => x.id === action.annotationId);
       if (a) stashedAnnotations.set(a.id, a);
-      set({ annotations: visibleAnnotations(get().annotations), editingId: get().editingId === action.annotationId ? null : get().editingId });
+      if (get().editingId === action.annotationId) get().setEditing(null);
+      set({ annotations: visibleAnnotations(get().annotations) });
       void get().redrawHighlights();
     } else {
       if (action.kind === "remove-book" && get().infoBookId === action.bookId) set({ infoBookId: null });
@@ -526,7 +530,12 @@ export const useApp = create<AppState>((set, get) => ({
     }
   },
   setSidebar(s) {
-    set({ sidebar: { ...get().sidebar, ...s } });
+    const sidebar = { ...get().sidebar, ...s };
+    if (!sidebar.open || sidebar.tab !== "annotations") {
+      sidebarOpenedForNote = false;
+      return set({ sidebar, editingId: null });
+    }
+    set({ sidebar });
   },
   openSettings() {
     const screen = get().screen;
@@ -557,6 +566,13 @@ export const useApp = create<AppState>((set, get) => ({
     set({ selection });
   },
   setEditing(editingId) {
+    const { sidebar } = get();
+    if (editingId !== null) {
+      if (get().editingId === null) sidebarOpenedForNote = !sidebar.open;
+      return set({ editingId, sidebar: { ...sidebar, open: true, tab: "annotations" } });
+    }
+    if (sidebarOpenedForNote && !sidebar.pinned) set({ sidebar: { ...sidebar, open: false } });
+    sidebarOpenedForNote = false;
     set({ editingId });
   },
   setSearch(patch) {

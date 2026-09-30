@@ -12,7 +12,6 @@ import { useResolvedTheme } from "./lib/theme";
 import { EpubReader } from "./reader/EpubReader";
 import { PdfReader } from "./reader/PdfReader";
 import { BookInfoPanel } from "@/components/BookInfoPanel";
-import { AnnotationEditor } from "@/components/AnnotationEditor";
 import { HighlightPopover, useReaderAnnotations } from "@/components/HighlightPopover";
 import { ReaderSidebar } from "@/components/ReaderSidebar";
 import { ImportJobs } from "@/components/ImportJobs";
@@ -58,7 +57,6 @@ function OpenBook({ detail }: { detail: BookDetail }) {
         <BookInfoPanel />
       </div>
       <HighlightPopover />
-      <AnnotationEditor />
     </main>
   );
 }
