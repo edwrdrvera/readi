@@ -21,6 +21,8 @@ import { ReaderSidebar } from "@/components/ReaderSidebar";
 import { ImportJobs } from "@/components/ImportJobs";
 import { Library } from "@/components/Library";
 import { ReaderChrome } from "@/components/ReaderChrome";
+import { ReaderPage } from "@/components/ReaderPage";
+import { ReaderSettingsPanel } from "@/components/ReaderSettingsPanel";
 import { SettingsSheet } from "@/components/SettingsSheet";
 
 function useReaderPrefs() {
@@ -37,17 +39,21 @@ function Reader() {
 
 function OpenBook({ detail }: { detail: BookDetail }) {
   const prefs = useReaderPrefs();
+  const aaOpen = useApp((s) => s.aaOpen);
   useReaderAnnotations(detail.book.id);
   return (
-    <main className="relative flex h-full overflow-hidden bg-reader">
-      <ReaderSidebar detail={detail} />
-      <div className="relative flex min-w-0 flex-1 flex-col">
-        <ReaderChrome detail={detail} prefs={prefs} />
-        {detail.book.format === "epub" ? (
-          <EpubReader key={detail.book.id} detail={detail} prefs={prefs} />
-        ) : (
-          <PdfReader key={detail.book.id} detail={detail} prefs={prefs} />
-        )}
+    <main className="flex h-full flex-col overflow-hidden bg-reader">
+      <ReaderChrome detail={detail} />
+      <div className="relative flex min-h-0 flex-1">
+        <ReaderSidebar detail={detail} />
+        <ReaderPage detail={detail} prefs={prefs}>
+          {detail.book.format === "epub" ? (
+            <EpubReader key={detail.book.id} detail={detail} prefs={prefs} />
+          ) : (
+            <PdfReader key={detail.book.id} detail={detail} prefs={prefs} />
+          )}
+        </ReaderPage>
+        {aaOpen && <ReaderSettingsPanel detail={detail} prefs={prefs} />}
       </div>
       <HighlightPopover />
       <AnnotationEditor />

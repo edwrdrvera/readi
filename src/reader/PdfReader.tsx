@@ -679,7 +679,6 @@ export function PdfReader({ detail, prefs }: { detail: BookDetail; prefs: Prefs 
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const viewRef = useRef<PdfView | null>(null);
-  const [label, setLabel] = useState("");
   const [pending] = useState(() => ({ view: deferred<PdfView>(), ready: deferred<void>() }));
   const saver = useSaver(detail.book.id);
   const notify = useApp((s) => s.notify);
@@ -707,7 +706,7 @@ export function PdfReader({ detail, prefs }: { detail: BookDetail; prefs: Prefs 
         content.current!,
         prefsRef.current,
         (loc, percent, immediate) => {
-          setLabel(pageLabel(loc.page_index, doc.numPages, labels));
+          useApp.getState().setProgress({ pdfPageLabel: pageLabel(loc.page_index, doc.numPages, labels) });
           saver.update(loc, percent, immediate);
         },
         notify,
@@ -809,11 +808,6 @@ export function PdfReader({ detail, prefs }: { detail: BookDetail; prefs: Prefs 
       <div className="pdf-scroller" ref={scroller}>
         <div className="pdf-content" ref={content} />
       </div>
-      {label && (
-        <div className="pdf-page-label" aria-live="polite">
-          {label}
-        </div>
-      )}
     </div>
   );
 }

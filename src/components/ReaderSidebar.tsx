@@ -33,7 +33,7 @@ export function ReaderSidebar({ detail }: { detail: BookDetail }) {
     <aside
       data-reader-sidebar
       aria-label="Sidebar"
-      className={cn("z-30 flex w-72 shrink-0 flex-col border-r bg-background", pinned ? "relative" : "absolute inset-y-0 left-0 shadow-xl")}
+      className={cn("z-30 flex w-60 shrink-0 flex-col border-r bg-background", pinned ? "relative" : "absolute inset-y-0 left-0 shadow-xl")}
       onKeyDown={(e) => {
         // The window handler skips editable targets, so Escape in the search or filter field lands here.
         if (e.key !== "Escape" || e.defaultPrevented) return;
@@ -42,8 +42,8 @@ export function ReaderSidebar({ detail }: { detail: BookDetail }) {
         else closeSidebar();
       }}
     >
-      <div className="flex items-center gap-1 border-b px-2 py-1.5">
-        <div role="tablist" aria-label="Sidebar" className="flex flex-1 gap-0.5">
+      <div className="flex items-center gap-1 px-3 pt-3 pb-2">
+        <div role="tablist" aria-label="Sidebar" className="flex flex-1 gap-1">
           {TABS.map((t, i) => (
             <button
               key={t.id}
@@ -54,8 +54,8 @@ export function ReaderSidebar({ detail }: { detail: BookDetail }) {
               tabIndex={tab === t.id ? 0 : -1}
               data-testid={`sidebar-tab-${t.id}`}
               className={cn(
-                "rounded-md px-2 py-1 text-[13px] outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring",
-                tab === t.id && "bg-accent font-medium text-accent-foreground",
+                "h-[26px] flex-1 rounded-md px-1 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                tab === t.id ? "bg-popover text-foreground shadow-[0_1px_2px_rgba(0,0,0,.12)]" : "text-muted-foreground hover:text-foreground",
               )}
               onClick={() => setSidebar({ tab: t.id })}
               onKeyDown={(e) => onTabKey(e, i)}
@@ -64,10 +64,10 @@ export function ReaderSidebar({ detail }: { detail: BookDetail }) {
             </button>
           ))}
         </div>
-        <Button variant="ghost" size="icon-sm" aria-pressed={pinned} aria-label={pinned ? "Unpin sidebar" : "Pin sidebar"} onClick={() => setSidebar({ pinned: !pinned })}>
+        <Button variant="ghost" size="icon-sm" className="size-7" aria-pressed={pinned} aria-label={pinned ? "Unpin sidebar" : "Pin sidebar"} onClick={() => setSidebar({ pinned: !pinned })}>
           {pinned ? <PinOff /> : <Pin />}
         </Button>
-        <Button variant="ghost" size="icon-sm" aria-label="Close sidebar" onClick={closeSidebar}>
+        <Button variant="ghost" size="icon-sm" className="size-7" aria-label="Close sidebar" onClick={closeSidebar}>
           <X />
         </Button>
       </div>

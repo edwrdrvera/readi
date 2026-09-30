@@ -48,6 +48,14 @@ export interface ReaderPosition {
   sectionIndex: number | null;
 }
 
+/** The open book's last reported position, for the reader footer and PDF contents. */
+export interface ReadingProgress {
+  percent: number | null;
+  pdfPage: number | null;
+  /** PDF page label from pageLabel(), e.g. "iv · 3 of 48". */
+  pdfPageLabel: string | null;
+}
+
 interface AppState {
   screen: Screen;
   books: BookSummary[];
@@ -69,6 +77,7 @@ interface AppState {
   settingsOpen: boolean;
   aaOpen: boolean;
   position: ReaderPosition;
+  progress: ReadingProgress;
   jobs: Record<number, ImportJob>;
   /** import_books calls not yet answered, shown as "Preparing import…". */
   pendingImports: number;
@@ -129,6 +138,7 @@ interface AppState {
   setSettingsOpen(open: boolean): void;
   setAaOpen(open: boolean): void;
   setPosition(p: ReaderPosition): void;
+  setProgress(p: Partial<ReadingProgress>): void;
   setSelection(s: SelectionInfo | null): void;
   setEditing(id: number | null): void;
   setLibrarySearchOpen(open: boolean): void;
@@ -162,6 +172,7 @@ export const useApp = create<AppState>((set, get) => ({
   settingsOpen: false,
   aaOpen: false,
   position: { tocHref: null, sectionIndex: null },
+  progress: { percent: null, pdfPage: null, pdfPageLabel: null },
   jobs: {},
   pendingImports: 0,
   collections: [],
@@ -370,7 +381,7 @@ export const useApp = create<AppState>((set, get) => ({
         defaults: prefs.defaults,
         overrides: prefs.overrides,
         position: { tocHref: null, sectionIndex: null },
-        aaOpen: false,
+        progress: { percent: detail.progress?.percent ?? null, pdfPage: null, pdfPageLabel: null },
         focusedBookId: id,
         annotations: [],
         selection: null,
@@ -387,7 +398,6 @@ export const useApp = create<AppState>((set, get) => ({
     set({
       screen: { name: "library" },
       overrides: {},
-      aaOpen: false,
       sidebar: { ...get().sidebar, open: false },
       annotations: [],
       selection: null,
@@ -458,6 +468,9 @@ export const useApp = create<AppState>((set, get) => ({
   },
   setPosition(position) {
     set({ position });
+  },
+  setProgress(p) {
+    set({ progress: { ...get().progress, ...p } });
   },
   setSelection(selection) {
     set({ selection });

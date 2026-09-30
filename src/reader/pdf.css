@@ -166,17 +166,3 @@
 .pdf-page .textLayer.selecting .endOfContent {
   top: 0;
 }
-
-.pdf-host.pdf-reader .pdf-page-label {
-  position: absolute;
-  bottom: 8px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 2px 8px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  color: var(--reader-muted, var(--muted, #6e6e73));
-  background: var(--reader-bg, transparent);
-  pointer-events: none;
-}

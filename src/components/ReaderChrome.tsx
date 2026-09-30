@@ -1,21 +1,29 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { ALargeSmall, BookmarkPlus, ChevronLeft, PanelLeft, Search, Settings, Undo2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { BookmarkPlus, ChevronLeft, PanelLeft, Search, Settings, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Separator } from "@/components/ui/separator";
 import type { BookDetail } from "@/lib/api";
 import { closeSidebar, goBack, openBookSearch, openSidebar } from "@/lib/commands";
 import { backHistory } from "@/lib/history";
-import type { PrefKey, Prefs } from "@/lib/prefs";
 import { useApp } from "@/lib/store";
+import { activeTocItem, flattenToc } from "@/lib/toc";
+import { cn } from "@/lib/utils";
 import { activeReader } from "@/reader/handle";
 import { readerActivity } from "@/reader/activity";
-import { PrefsForm } from "./PrefsForm";
 import { openSettings } from "./SettingsSheet";
 
 const HIDE_AFTER_MS = 2000;
 
-export function ReaderChrome({ detail, prefs }: { detail: BookDetail; prefs: Prefs }) {
+/** Label of the contents entry the reader is in, or null when the book has none there. */
+export function useSectionLabel(detail: BookDetail): string | null {
+  const position = useApp((s) => s.position);
+  const pdfPage = useApp((s) => s.progress.pdfPage);
+  const flat = useMemo(() => flattenToc(detail.toc), [detail.toc]);
+  return useMemo(() => activeTocItem(detail, flat, position, pdfPage)?.label ?? null, [detail, flat, position, pdfPage]);
+}
+
+const ICON = "size-[30px] [&_svg]:size-4";
+
+export function ReaderChrome({ detail }: { detail: BookDetail }) {
   const bar = useRef<HTMLElement>(null);
   const [visible, setVisible] = useState(true);
   const saveStatus = useApp((s) => s.saveStatus);
@@ -24,9 +32,6 @@ export function ReaderChrome({ detail, prefs }: { detail: BookDetail; prefs: Pre
   const aaOpen = useApp((s) => s.aaOpen);
   const setAaOpen = useApp((s) => s.setAaOpen);
   const settingsOpen = useApp((s) => s.settingsOpen);
-  const overrides = useApp((s) => s.overrides);
-  const setOverride = useApp((s) => s.setOverride);
-  const resetOverrides = useApp((s) => s.resetOverrides);
   const bookId = detail.book.id;
   const backSize = useSyncExternalStore(backHistory.subscribe, () => backHistory.size(bookId));
   const alwaysShow = useApp((s) => s.uiSettings.always_show_controls);
@@ -58,21 +63,22 @@ export function ReaderChrome({ detail, prefs }: { detail: BookDetail; prefs: Pre
   }, []);
 
   const shown = visible || held || saveStatus?.kind === "error";
-  const overridden = Object.fromEntries(Object.keys(overrides).map((k) => [k, true])) as Partial<Record<PrefKey, boolean>>;
-  const isPdf = detail.book.format === "pdf";
+  const section = useSectionLabel(detail);
 
   return (
     <header
       ref={bar}
       data-visible={shown}
-      className="absolute inset-x-0 top-0 z-20 flex items-center gap-1 border-b bg-chrome px-2 py-1 text-[13px] backdrop-blur transition-opacity duration-200 data-[visible=false]:pointer-events-none data-[visible=false]:opacity-0"
+      data-tauri-drag-region
+      className="z-20 flex h-[52px] shrink-0 items-center gap-1.5 border-b bg-chrome pr-3.5 pl-[78px] text-[13px] backdrop-blur transition-opacity duration-200 data-[visible=false]:pointer-events-none data-[visible=false]:opacity-0"
     >
-      <Button variant="ghost" size="sm" onClick={() => void closeBook()} aria-label="Back to library">
-        <ChevronLeft /> Library
+      <Button variant="ghost" size="icon-sm" className={ICON} onClick={() => void closeBook()} aria-label="Back to library">
+        <ChevronLeft />
       </Button>
       <Button
         variant="ghost"
         size="icon-sm"
+        className={cn(ICON, sidebarOpen && "bg-muted")}
         aria-label="Sidebar"
         aria-pressed={sidebarOpen}
         title="Sidebar (⌘\)"
@@ -80,10 +86,13 @@ export function ReaderChrome({ detail, prefs }: { detail: BookDetail; prefs: Pre
       >
         <PanelLeft />
       </Button>
-      <Button variant="ghost" size="icon-sm" aria-label="Back" title="Back (⌘[)" disabled={backSize === 0} onClick={() => void goBack()}>
+      <Button variant="ghost" size="icon-sm" className={ICON} aria-label="Back" title="Back (⌘[)" disabled={backSize === 0} onClick={() => void goBack()}>
         <Undo2 />
       </Button>
-      <span className="mx-2 min-w-0 flex-1 truncate text-center text-muted-foreground">{detail.book.title}</span>
+      <span data-tauri-drag-region className="mx-2 min-w-0 flex-1 truncate text-center">
+        <span className="font-semibold">{detail.book.title}</span>
+        {section && <span className="text-muted-foreground"> — {section}</span>}
+      </span>
       {saveStatus?.kind === "error" && (
         <span className="text-destructive" role="alert">
           Progress not saved.{" "}
@@ -92,12 +101,13 @@ export function ReaderChrome({ detail, prefs }: { detail: BookDetail; prefs: Pre
           </Button>
         </span>
       )}
-      <Button variant="ghost" size="icon-sm" aria-label="Find in book" title="Find in Book (⌘F)" data-testid="search-open" onClick={(e) => openBookSearch(e.currentTarget)}>
+      <Button variant="ghost" size="icon-sm" className={ICON} aria-label="Find in book" title="Find in Book (⌘F)" data-testid="search-open" onClick={(e) => openBookSearch(e.currentTarget)}>
         <Search />
       </Button>
       <Button
         variant="ghost"
         size="icon-sm"
+        className={ICON}
         aria-label="Add bookmark"
         title="Add Bookmark (⌘D)"
         data-testid="bookmark-add"
@@ -105,31 +115,18 @@ export function ReaderChrome({ detail, prefs }: { detail: BookDetail; prefs: Pre
       >
         <BookmarkPlus />
       </Button>
-      <Popover open={aaOpen} onOpenChange={setAaOpen}>
-        <PopoverTrigger asChild>
-          <Button variant="ghost" size="icon-sm" aria-label="Appearance for this book">
-            <ALargeSmall />
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent align="end" className="w-80">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold">This book</h2>
-            <Button variant="outline" size="sm" disabled={Object.keys(overrides).length === 0} onClick={() => void resetOverrides()}>
-              Reset to defaults
-            </Button>
-          </div>
-          <PrefsForm
-            values={prefs}
-            groups={isPdf ? ["layout", "pdf"] : ["layout", "text"]}
-            overridden={overridden}
-            onChange={(k, v) => void setOverride(k, v)}
-            onClear={(k) => void setOverride(k, null)}
-          />
-          <Separator className="my-3" />
-          <p className="text-xs text-muted-foreground">Marked settings apply to this book only.</p>
-        </PopoverContent>
-      </Popover>
-      <Button variant="ghost" size="icon-sm" aria-label="Settings" onClick={openSettings}>
+      <Button
+        variant="ghost"
+        size="sm"
+        className={cn("h-[30px] px-2 font-serif text-[15px] font-medium", aaOpen && "bg-muted")}
+        aria-label="Appearance for this book"
+        aria-pressed={aaOpen}
+        title="Reading settings"
+        onClick={() => setAaOpen(!aaOpen)}
+      >
+        Aa
+      </Button>
+      <Button variant="ghost" size="icon-sm" className={ICON} aria-label="Settings" onClick={openSettings}>
         <Settings />
       </Button>
     </header>

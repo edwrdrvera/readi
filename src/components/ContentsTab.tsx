@@ -1,46 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import type { BookDetail, TocItem } from "@/lib/api";
 import { closeSidebar } from "@/lib/commands";
 import { useApp } from "@/lib/store";
+import { activeTocItem, flattenToc } from "@/lib/toc";
 import { activeReader } from "@/reader/handle";
 import { cn } from "@/lib/utils";
-
-const flatten = (items: TocItem[]): TocItem[] => items.flatMap((i) => [i, ...flatten(i.children)]);
-
-/** The PDF reader exposes its page only through location(), so poll it while shown. */
-function usePdfPage(enabled: boolean) {
-  const [page, setPage] = useState<number | null>(null);
-  useEffect(() => {
-    if (!enabled) return;
-    const read = () => {
-      const l = activeReader()?.location();
-      setPage(l?.format === "pdf" ? l.page_index : null);
-    };
-    read();
-    const t = setInterval(read, 400);
-    return () => clearInterval(t);
-  }, [enabled]);
-  return page;
-}
 
 export function ContentsTab({ detail }: { detail: BookDetail }) {
   const open = useApp((s) => s.sidebar.open);
   const position = useApp((s) => s.position);
+  const pdfPage = useApp((s) => s.progress.pdfPage);
   const isPdf = detail.book.format === "pdf";
-  const flat = useMemo(() => flatten(detail.toc), [detail.toc]);
-  const pdfPage = usePdfPage(open && isPdf);
-
-  const active = useMemo(() => {
-    if (isPdf) {
-      if (pdfPage === null) return null;
-      return flat.filter((t) => Number(t.target) <= pdfPage).at(-1) ?? null;
-    }
-    return (
-      (position.tocHref && flat.find((t) => t.target === position.tocHref)) ||
-      flat.find((t) => t.target === String(position.sectionIndex)) ||
-      null
-    );
-  }, [isPdf, pdfPage, flat, position]);
+  const flat = useMemo(() => flattenToc(detail.toc), [detail.toc]);
+  const active = useMemo(() => activeTocItem(detail, flat, position, pdfPage), [detail, flat, position, pdfPage]);
 
   useEffect(() => {
     if (open) document.querySelector<HTMLElement>("[data-toc-active]")?.scrollIntoView({ block: "nearest" });
@@ -64,14 +36,14 @@ export function ContentsTab({ detail }: { detail: BookDetail }) {
               aria-current={isActive ? "location" : undefined}
               onClick={() => void jump(item.target)}
               className={cn(
-                "flex w-full items-baseline gap-2 rounded-md py-1.5 pr-2 text-left text-sm hover:bg-muted",
-                isActive && "bg-accent font-medium text-accent-foreground",
+                "flex w-full items-baseline gap-2 rounded-md py-[7px] pr-2.5 text-left text-[13px] outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring",
+                isActive && "bg-accent text-accent-foreground hover:bg-accent",
               )}
-              style={{ paddingLeft: 8 + depth * 14 }}
+              style={{ paddingLeft: 10 + depth * 14 }}
             >
               <span className="flex-1">{item.label}</span>
               {isPdf && (
-                <span className="text-xs text-muted-foreground tabular-nums" aria-label={`physical page ${Number(item.target) + 1}`}>
+                <span className="text-[11px] text-muted-foreground tabular-nums" aria-label={`physical page ${Number(item.target) + 1}`}>
                   {Number(item.target) + 1}
                 </span>
               )}
@@ -84,8 +56,8 @@ export function ContentsTab({ detail }: { detail: BookDetail }) {
   );
 
   return (
-    <nav className="p-2">
-      {flat.length === 0 ? <p className="p-2 text-sm text-muted-foreground">Contents appear once this book has been indexed.</p> : render(detail.toc, 0)}
+    <nav className="px-2.5 pt-1 pb-4">
+      {flat.length === 0 ? <p className="p-2.5 text-xs text-muted-foreground">Contents appear once this book has been indexed.</p> : render(detail.toc, 0)}
     </nav>
   );
 }

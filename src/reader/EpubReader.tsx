@@ -7,7 +7,7 @@ import type { Annotation, AnchorState, BookDetail, HighlightColor, Locator } fro
 import { loadEpub } from "../adapters/epub";
 import { handleKeydown } from "../lib/commands";
 import { backHistory } from "../lib/history";
-import { THEME_COLORS, type Prefs, type Theme } from "../lib/prefs";
+import { PAGE_WIDTHS, THEME_COLORS, type Prefs, type Theme } from "../lib/prefs";
 import { useApp } from "../lib/store";
 import { useResolvedTheme } from "../lib/theme";
 import { readerActivity } from "./activity";
@@ -41,6 +41,7 @@ export function readerCss(prefs: Prefs, theme: Theme): string {
     html, body { background: transparent !important; }
     body { color: ${c.fg} !important; font-size: 1rem !important; }
     p, li, blockquote, dd, dt, td, th, figcaption { line-height: ${prefs.line_height} !important; }
+    ${prefs.text_align === "justify" ? "p { text-align: justify !important; hyphens: auto; -webkit-hyphens: auto; }" : ""}
     a:link, a:visited { color: ${c.link} !important; }
     ${family}
     ${recolor}
@@ -87,6 +88,8 @@ function applyLayout(r: Renderer, prefs: Prefs) {
   // foliate re-renders on every attribute write, even an unchanged value.
   if (r.getAttribute("flow") !== flow) r.setAttribute("flow", flow);
   if (r.getAttribute("max-column-count") !== columns) r.setAttribute("max-column-count", columns);
+  const width = `${PAGE_WIDTHS[prefs.page_width]}px`;
+  if (r.getAttribute("max-inline-size") !== width) r.setAttribute("max-inline-size", width);
 }
 
 /**
