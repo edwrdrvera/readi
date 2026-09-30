@@ -119,8 +119,9 @@ interface AppState {
   setMembership(collectionId: number, bookIds: number[], member: boolean): Promise<void>;
   /** Returns the backend's error text when the file does not match. */
   locateBook(id: number, path: string): Promise<string | null>;
-  createCollection(name: string, addBookIds: number[]): Promise<void>;
-  renameCollection(id: number, name: string): Promise<void>;
+  /** Both return the backend's error text, or null once saved. */
+  createCollection(name: string, addBookIds: number[]): Promise<string | null>;
+  renameCollection(id: number, name: string): Promise<string | null>;
   addFolder(path: string): Promise<void>;
   setFolderCollection(id: number, enabled: boolean): Promise<void>;
   rescan(): Promise<void>;
@@ -397,13 +398,25 @@ export const useApp = create<AppState>((set, get) => ({
     return null;
   },
   async createCollection(name, addBookIds) {
-    await get().mutate("Could not create the collection", async () => {
+    try {
       const c = await api.createCollection(name);
       if (addBookIds.length > 0) await api.setCollectionMembership(c.id, addBookIds, true);
-    });
+      return null;
+    } catch (e) {
+      return String(e);
+    } finally {
+      await get().refreshLibrary();
+    }
   },
   async renameCollection(id, name) {
-    await get().mutate("Could not rename the collection", () => api.renameCollection(id, name));
+    try {
+      await api.renameCollection(id, name);
+      return null;
+    } catch (e) {
+      return String(e);
+    } finally {
+      await get().refreshLibrary();
+    }
   },
   async addFolder(path) {
     await get().mutate("Could not add the folder", () => api.addWatchedFolder(path));

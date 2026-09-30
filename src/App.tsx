@@ -12,7 +12,6 @@ import { useResolvedTheme } from "./lib/theme";
 import { EpubReader } from "./reader/EpubReader";
 import { PdfReader } from "./reader/PdfReader";
 import { BookInfoPanel } from "@/components/BookInfoPanel";
-import { CollectionEditor } from "@/components/CollectionEditor";
 import { AnnotationEditor } from "@/components/AnnotationEditor";
 import { HighlightPopover, useReaderAnnotations } from "@/components/HighlightPopover";
 import { ReaderSidebar } from "@/components/ReaderSidebar";
@@ -116,7 +115,6 @@ export default function App() {
       {screen.name === "settings" && <SettingsPage />}
       {detail && <Reader detail={detail} covered={screen.name === "settings"} />}
       <UndoBar />
-      <CollectionEditor />
       <ImportJobs />
       {dragging && (
         <div data-drop-overlay className="pointer-events-none fixed inset-2 z-50 flex items-center justify-center rounded-xl border-2 border-dashed border-primary bg-background/80 text-lg font-medium">

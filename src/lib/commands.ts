@@ -342,9 +342,11 @@ export function paletteCommands(ctx: CommandContext): Command[] {
     }
   }
   out.push(
-    dynamic("collection.new", "New Collection…", () =>
-      s.setCollectionEditor({ mode: "create", addBookIds: ctx.bookId === null ? [] : [ctx.bookId] }),
-    ),
+    dynamic("collection.new", "New Collection", async () => {
+      // The new row appears in the Library sidebar.
+      if (ctx.screen === "reader") await s.closeBook();
+      s.setCollectionEditor({ mode: "create", addBookIds: ctx.bookId === null ? [] : [ctx.bookId] });
+    }),
   );
   return out;
 }

@@ -6,6 +6,7 @@ import { useApp } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { CollectionNameRow } from "./CollectionNameRow";
 
 function Entry({ active, icon, label, count, onClick, children }: { active: boolean; icon: React.ReactNode; label: string; count?: number; onClick(): void; children?: React.ReactNode }) {
   return (
@@ -36,6 +37,8 @@ const go = (patch: Partial<LibraryView>) => {
 
 function ManualEntry({ c, active }: { c: Collection; active: boolean }) {
   const s = useApp.getState();
+  const renaming = useApp((st) => st.collectionEditor?.mode === "rename" && st.collectionEditor.collectionId === c.id);
+  if (renaming) return <CollectionNameRow collectionId={c.id} initial={c.name} onSave={(name) => s.renameCollection(c.id, name)} />;
   return (
     <Entry active={active} icon={<Tag />} label={c.name} onClick={() => go({ collection_id: c.id, format: null })}>
       <DropdownMenu>
@@ -45,7 +48,7 @@ function ManualEntry({ c, active }: { c: Collection; active: boolean }) {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start">
-          <DropdownMenuItem onSelect={() => s.setCollectionEditor({ mode: "rename", collectionId: c.id })}>Rename…</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => s.setCollectionEditor({ mode: "rename", collectionId: c.id })}>Rename</DropdownMenuItem>
           <DropdownMenuItem variant="destructive" onSelect={() => s.schedule({ kind: "delete-collection", collectionId: c.id })}>
             Delete Collection
           </DropdownMenuItem>
@@ -65,6 +68,8 @@ export function LibrarySidebar() {
   const view = effectiveView(useApp((s) => s.uiSettings.library));
   const inSettings = useApp((s) => s.screen.name === "settings");
   const setCollectionEditor = useApp((s) => s.setCollectionEditor);
+  const creating = useApp((s) => (s.collectionEditor?.mode === "create" ? s.collectionEditor : null));
+  const createCollection = useApp((s) => s.createCollection);
   const manual = collections.filter((c) => c.kind === "manual");
   const derived = collections.filter((c) => c.kind === "derived");
   const current = inSettings ? undefined : view.collection_id;
@@ -80,7 +85,7 @@ export function LibrarySidebar() {
       </ul>
       <div className="flex items-center justify-between pt-5 pr-2.5">
         <Label className="pb-0">Collections</Label>
-        <Button variant="ghost" size="icon-sm" className="size-6" aria-label="New Collection…" onClick={() => setCollectionEditor({ mode: "create", addBookIds: [] })}>
+        <Button variant="ghost" size="icon-sm" className="size-6" aria-label="New Collection" onClick={() => setCollectionEditor({ mode: "create", addBookIds: [] })}>
           <Plus />
         </Button>
       </div>
@@ -88,6 +93,7 @@ export function LibrarySidebar() {
         {manual.map((c) => (
           <ManualEntry key={c.id} c={c} active={current === c.id} />
         ))}
+        {creating && <CollectionNameRow collectionId={null} initial="" onSave={(name) => createCollection(name, creating.addBookIds)} />}
       </ul>
       {derived.length > 0 && (
         <>

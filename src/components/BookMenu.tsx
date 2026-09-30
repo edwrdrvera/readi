@@ -75,7 +75,7 @@ export function BookMenuItems({ book, kit }: { book: BookSummary; kit: MenuKit }
             </CheckboxItem>
           ))}
           {manual.length > 0 && <Separator />}
-          <Item onSelect={() => s.setCollectionEditor({ mode: "create", addBookIds: [book.id] })}>New Collection…</Item>
+          <Item onSelect={() => s.setCollectionEditor({ mode: "create", addBookIds: [book.id] })}>New Collection with Selection</Item>
         </SubContent>
       </Sub>
       <Item onSelect={() => s.showBookInfo(book.id)}>Book Info…</Item>
