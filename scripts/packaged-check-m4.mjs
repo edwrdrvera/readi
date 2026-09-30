@@ -185,7 +185,7 @@ export async function runM4({ root, runPhase, check, notVerified, measured }) {
         check('PDF highlight still covers the selected text after zoom 2x', p.zoomedOverSelection > 0.8 && p.zoomGrowth > 1.2, p)
         check('PDF note saved through the editor and stored', p.note.saved && p.note.dbNote?.startsWith('pdf note'), p.note)
         check('highlight color edited to blue, stored and redrawn', p.blue && p.blueDrawn, p)
-        check('highlight deleted from the editor: row and drawing gone', p.second.deleted && p.second.undrawn, p.second)
+        check('highlight deleted from the editor through the undo bar: row and drawing gone', p.second.undoShown && p.second.deleted && p.second.undrawn, p.second)
       }
       const b = ann.bookmarks ?? {}
       check('⌘D bookmark on image-only PDF', b.image?.kind === 'bookmark' && b.image.anchorType === 'position', b)

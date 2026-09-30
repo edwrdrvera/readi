@@ -582,6 +582,8 @@ async function pdfHighlight(ids: Ids): Promise<Report> {
   const second = await until("second highlight editor", () => q(tid("annotation-editor")), 5000);
   const secondId = Number(second.dataset.id);
   q<HTMLButtonElement>('button[aria-label="Delete highlight"]', second)?.click();
+  const undoShown = await until("undo bar for the deletion", () => q(`${tid("undo-bar")}[data-kind="delete-annotation"]`), 3000).catch(() => null);
+  await s().flushPending();
   const deleted = await until("second highlight deleted", async () => !(await api.listAnnotations(ids.text)).some((a) => a.id === secondId), 5000).catch(() => false);
   const undrawn = await until("second highlight undrawn", () => !q(`polygon.pdf-hl[data-id="${secondId}"]`), 5000).catch(() => false);
   return {
@@ -598,7 +600,7 @@ async function pdfHighlight(ids: Ids): Promise<Report> {
     note,
     blue,
     blueDrawn,
-    second: { id: secondId, deleted, undrawn },
+    second: { id: secondId, deleted, undrawn, undoShown: undoShown !== null },
   };
 }
 

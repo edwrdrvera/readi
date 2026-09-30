@@ -13,7 +13,7 @@ import { SWATCH } from "./HighlightPopover";
 export function AnnotationsTab() {
   const annotations = useApp((s) => s.annotations);
   const setEditing = useApp((s) => s.setEditing);
-  const deleteAnnotation = useApp((s) => s.deleteAnnotation);
+  const schedule = useApp((s) => s.schedule);
   const [filter, setFilter] = useState("");
   const shown = useMemo(() => filterAnnotations(annotations, filter), [annotations, filter]);
 
@@ -72,7 +72,7 @@ export function AnnotationsTab() {
                   <Button variant="ghost" size="icon-sm" aria-label="Edit note" onClick={() => setEditing(a.id)}>
                     <Pencil />
                   </Button>
-                  <Button variant="ghost" size="icon-sm" aria-label={a.kind === "bookmark" ? "Delete bookmark" : "Delete highlight"} onClick={() => void deleteAnnotation(a.id)}>
+                  <Button variant="ghost" size="icon-sm" aria-label={a.kind === "bookmark" ? "Delete bookmark" : "Delete highlight"} onClick={() => schedule({ kind: "delete-annotation", annotationId: a.id })}>
                     <Trash2 />
                   </Button>
                 </span>

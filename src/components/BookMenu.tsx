@@ -81,12 +81,12 @@ export function BookMenuItems({ book, kit }: { book: BookSummary; kit: MenuKit }
       <Item onSelect={() => s.showBookInfo(book.id)}>Book Info…</Item>
       <Separator />
       {canDeleteCopy && (
-        <Item variant="destructive" onSelect={() => s.setConfirmation({ kind: "delete-copy", bookId: book.id })}>
-          Delete Managed Copy…
+        <Item variant="destructive" onSelect={() => s.schedule({ kind: "delete-copy", bookId: book.id })}>
+          Delete Managed Copy
         </Item>
       )}
-      <Item variant="destructive" onSelect={() => s.setConfirmation({ kind: "remove-book", bookId: book.id })}>
-        Remove from Library…
+      <Item variant="destructive" onSelect={() => s.schedule({ kind: "remove-book", bookId: book.id })}>
+        Remove from Library
       </Item>
     </>
   );

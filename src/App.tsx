@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { EVENTS, type BookDetail, type ImportJob } from "./lib/api";
 import { extraction } from "./lib/extraction";
 import { handleKeydown, runCommand } from "./lib/commands";
@@ -13,7 +14,6 @@ import { PdfReader } from "./reader/PdfReader";
 import { BookInfoSheet } from "@/components/BookInfoSheet";
 import { CollectionEditor } from "@/components/CollectionEditor";
 import { CommandPalette } from "@/components/CommandPalette";
-import { Confirmations } from "@/components/Confirmations";
 import { AnnotationEditor } from "@/components/AnnotationEditor";
 import { HighlightPopover, useReaderAnnotations } from "@/components/HighlightPopover";
 import { LibrarySearch } from "@/components/LibrarySearch";
@@ -24,6 +24,7 @@ import { ReaderChrome } from "@/components/ReaderChrome";
 import { ReaderPage } from "@/components/ReaderPage";
 import { ReaderSettingsPanel } from "@/components/ReaderSettingsPanel";
 import { SettingsSheet } from "@/components/SettingsSheet";
+import { UndoBar } from "@/components/UndoBar";
 
 function useReaderPrefs() {
   const defaults = useApp((s) => s.defaults);
@@ -97,9 +98,10 @@ export default function App() {
       void useApp.getState().refreshLibrary();
       extraction.kick();
     });
+    const closing = getCurrentWindow().onCloseRequested(() => useApp.getState().flushPending());
     window.addEventListener("keydown", handleKeydown);
     return () => {
-      for (const u of [menu, jobs, changed, drop]) void u.then((f) => f());
+      for (const u of [menu, jobs, changed, drop, closing]) void u.then((f) => f());
       off();
       window.removeEventListener("keydown", handleKeydown);
     };
@@ -110,7 +112,7 @@ export default function App() {
       {screen.name === "library" ? <Library /> : <Reader />}
       <SettingsSheet />
       <BookInfoSheet />
-      <Confirmations />
+      <UndoBar />
       <CollectionEditor />
       <CommandPalette />
       <LibrarySearch />

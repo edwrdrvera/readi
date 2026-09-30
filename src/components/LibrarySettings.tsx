@@ -14,7 +14,7 @@ const scanned = (t: number | null) => (t === null ? "Not scanned yet" : `Scanned
 
 export function WatchedFoldersSettings() {
   const folders = useApp((s) => s.folders);
-  const { addFolder, setConfirmation, setFolderCollection, rescan } = useApp.getState();
+  const { addFolder, schedule, setFolderCollection, rescan } = useApp.getState();
   const add = async () => {
     const picked = await open({ directory: true, multiple: false });
     if (typeof picked === "string") await addFolder(picked);
@@ -51,8 +51,8 @@ export function WatchedFoldersSettings() {
                   <Switch checked={f.show_collection} onCheckedChange={(v) => void setFolderCollection(f.id, v)} />
                   Show as collection
                 </label>
-                <Button variant="ghost" size="sm" className="h-7 text-destructive" onClick={() => setConfirmation({ kind: "remove-folder", folderId: f.id })}>
-                  Remove…
+                <Button variant="ghost" size="sm" className="h-7 text-destructive" onClick={() => schedule({ kind: "remove-folder", folderId: f.id })}>
+                  Remove
                 </Button>
               </div>
             </li>

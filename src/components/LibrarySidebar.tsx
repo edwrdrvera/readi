@@ -38,8 +38,8 @@ function ManualEntry({ c, active }: { c: Collection; active: boolean }) {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start">
           <DropdownMenuItem onSelect={() => s.setCollectionEditor({ mode: "rename", collectionId: c.id })}>Rename…</DropdownMenuItem>
-          <DropdownMenuItem variant="destructive" onSelect={() => s.setConfirmation({ kind: "delete-collection", collectionId: c.id })}>
-            Delete Collection…
+          <DropdownMenuItem variant="destructive" onSelect={() => s.schedule({ kind: "delete-collection", collectionId: c.id })}>
+            Delete Collection
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

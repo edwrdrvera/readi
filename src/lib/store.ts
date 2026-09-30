@@ -23,16 +23,16 @@ import { DEFAULT_PREFS, type Overrides, type PrefKey, type Prefs } from "./prefs
 import type { SaveStatus } from "./progress";
 import { applyAnchorStates, byReadingOrder } from "./annotations";
 import { dropNote, flushNotes } from "./notes";
+import { createScheduler, UNDO_MS, type HoldReason, type PendingAction } from "./pending";
 import { activeReader, type SelectionInfo } from "../reader/handle";
 
 export const DEFAULT_UI_SETTINGS: UiSettings = { library: DEFAULT_VIEW, always_show_controls: false };
 
-/** A destructive action waiting for explicit confirmation. */
-export type Confirmation =
-  | { kind: "remove-book"; bookId: number }
-  | { kind: "delete-copy"; bookId: number }
-  | { kind: "delete-collection"; collectionId: number }
-  | { kind: "remove-folder"; folderId: number };
+/** The action the Undo bar shows, with its message worked out while the item was still listed. */
+export interface Pending {
+  action: PendingAction;
+  message: string;
+}
 
 export type CollectionEditor = { mode: "create"; addBookIds: number[] } | { mode: "rename"; collectionId: number };
 
@@ -89,7 +89,7 @@ interface AppState {
   /** Locations per book, loaded on demand and cleared when the library changes. */
   locations: Record<number, Location[]>;
   infoBookId: number | null;
-  confirmation: Confirmation | null;
+  pending: Pending | null;
   collectionEditor: CollectionEditor | null;
   paletteOpen: boolean;
   refreshBooks(): Promise<void>;
@@ -107,7 +107,12 @@ interface AppState {
   focusBook(id: number): void;
   loadLocations(id: number): Promise<Location[]>;
   showBookInfo(id: number | null): void;
-  setConfirmation(c: Confirmation | null): void;
+  /** Hides the item now and runs the action when the Undo bar goes away. */
+  schedule(action: PendingAction): void;
+  undo(): void;
+  /** Runs the waiting action now; the window calls this before closing. */
+  flushPending(): Promise<void>;
+  holdPending(reason: HoldReason, on: boolean): void;
   setCollectionEditor(e: CollectionEditor | null): void;
   setPaletteOpen(open: boolean): void;
   setReadingState(id: number, state: ReadingState): Promise<void>;
@@ -116,8 +121,6 @@ interface AppState {
   locateBook(id: number, path: string): Promise<string | null>;
   createCollection(name: string, addBookIds: number[]): Promise<void>;
   renameCollection(id: number, name: string): Promise<void>;
-  /** Carries out the pending confirmation. */
-  confirm(): Promise<void>;
   addFolder(path: string): Promise<void>;
   setFolderCollection(id: number, enabled: boolean): Promise<void>;
   rescan(): Promise<void>;
@@ -151,7 +154,47 @@ interface AppState {
   addBookmark(): Promise<void>;
   /** Throws on failure so note editors can keep their draft. */
   updateAnnotation(id: number, patch: AnnotationPatch): Promise<void>;
-  deleteAnnotation(id: number): Promise<void>;
+}
+
+/**
+ * Lists as the backend last returned them. The store shows them minus items whose
+ * removal is waiting in the Undo bar or still committing.
+ */
+const raw = { books: [] as BookSummary[], collections: [] as Collection[], folders: [] as WatchedFolder[] };
+let hidden: PendingAction[] = [];
+const hides = (kind: PendingAction["kind"], id: number) =>
+  hidden.some(
+    (a) =>
+      a.kind === kind &&
+      ((a.kind === "remove-book" && a.bookId === id) ||
+        (a.kind === "delete-collection" && a.collectionId === id) ||
+        (a.kind === "remove-folder" && a.folderId === id) ||
+        (a.kind === "delete-annotation" && a.annotationId === id)),
+  );
+const visible = () => ({
+  books: raw.books.filter((b) => !hides("remove-book", b.id)),
+  collections: raw.collections.filter((c) => !hides("delete-collection", c.id)),
+  folders: raw.folders.filter((f) => !hides("remove-folder", f.id)),
+});
+const visibleAnnotations = (list: Annotation[]) => list.filter((a) => !hides("delete-annotation", a.id));
+/** Annotations taken out of the list while their deletion waits, to put back on undo. */
+const stashedAnnotations = new Map<number, Annotation>();
+
+const quoted = (s: string) => `“${s}”`;
+
+function undoMessage(a: PendingAction, s: AppState): string {
+  switch (a.kind) {
+    case "remove-book":
+      return `Removed ${quoted(raw.books.find((b) => b.id === a.bookId)?.title ?? "the book")} from the library`;
+    case "delete-copy":
+      return `Deleted the managed copy of ${quoted(raw.books.find((b) => b.id === a.bookId)?.title ?? "the book")}`;
+    case "delete-collection":
+      return `Deleted ${quoted(raw.collections.find((c) => c.id === a.collectionId)?.name ?? "the collection")}`;
+    case "remove-folder":
+      return `Removed folder ${quoted(raw.folders.find((f) => f.id === a.folderId)?.path ?? "")}`;
+    case "delete-annotation":
+      return s.annotations.find((x) => x.id === a.annotationId)?.kind === "bookmark" ? "Deleted the bookmark" : "Deleted the highlight";
+  }
 }
 
 const openBookId = (s: AppState) => (s.screen.name === "reader" ? s.screen.detail.book.id : null);
@@ -182,11 +225,12 @@ export const useApp = create<AppState>((set, get) => ({
   focusedBookId: null,
   locations: {},
   infoBookId: null,
-  confirmation: null,
+  pending: null,
   collectionEditor: null,
   paletteOpen: false,
   async refreshBooks() {
-    set({ books: await api.listBooks() });
+    raw.books = await api.listBooks();
+    set({ books: visible().books });
   },
   async refreshLibrary() {
     try {
@@ -196,7 +240,8 @@ export const useApp = create<AppState>((set, get) => ({
         api.listWatchedFolders(),
         api.listExclusions(),
       ]);
-      set({ books, collections, folders, exclusions, locations: {} });
+      Object.assign(raw, { books, collections, folders });
+      set({ ...visible(), exclusions, locations: {} });
     } catch (e) {
       get().notify(`Could not load the library: ${e}`);
     }
@@ -280,10 +325,38 @@ export const useApp = create<AppState>((set, get) => ({
     set({ infoBookId });
     if (infoBookId !== null) void get().loadLocations(infoBookId).catch((e) => get().notify(`Could not load locations: ${e}`));
   },
-  setConfirmation(confirmation) {
-    set({ confirmation });
-    // The removal copy depends on where the book's files are.
-    if (confirmation?.kind === "remove-book" || confirmation?.kind === "delete-copy") void get().loadLocations(confirmation.bookId).catch(() => {});
+  schedule(action) {
+    const message = undoMessage(action, get());
+    hidden.push(action);
+    if (action.kind === "delete-annotation") {
+      const a = get().annotations.find((x) => x.id === action.annotationId);
+      if (a) stashedAnnotations.set(a.id, a);
+      set({ annotations: visibleAnnotations(get().annotations), editingId: get().editingId === action.annotationId ? null : get().editingId });
+      void get().redrawHighlights();
+    } else {
+      if (action.kind === "remove-book" && get().infoBookId === action.bookId) set({ infoBookId: null });
+      if (action.kind === "delete-collection" && get().uiSettings.library.collection_id === action.collectionId) void get().setView({ collection_id: null });
+      set(visible());
+    }
+    scheduler.schedule({ action, message });
+  },
+  undo() {
+    const p = get().pending;
+    scheduler.undo();
+    if (!p) return;
+    hidden = hidden.filter((a) => a !== p.action);
+    if (p.action.kind !== "delete-annotation") return set(visible());
+    const a = stashedAnnotations.get(p.action.annotationId);
+    stashedAnnotations.delete(p.action.annotationId);
+    if (!a || openBookId(get()) !== a.book_id) return;
+    set({ annotations: byReadingOrder([...get().annotations, a]) });
+    void get().redrawHighlights();
+  },
+  flushPending() {
+    return scheduler.flush();
+  },
+  holdPending(reason, on) {
+    scheduler.hold(reason, on);
   },
   setCollectionEditor(collectionEditor) {
     set({ collectionEditor });
@@ -329,28 +402,6 @@ export const useApp = create<AppState>((set, get) => ({
   },
   async renameCollection(id, name) {
     await get().mutate("Could not rename the collection", () => api.renameCollection(id, name));
-  },
-  async confirm() {
-    const c = get().confirmation;
-    set({ confirmation: null });
-    if (!c) return;
-    const { mutate } = get();
-    switch (c.kind) {
-      case "remove-book":
-        if (get().infoBookId === c.bookId) set({ infoBookId: null });
-        await mutate("Could not remove the book", () => api.removeBook(c.bookId));
-        return;
-      case "delete-copy":
-        await mutate("Could not delete the managed copy", () => api.removeManagedCopy(c.bookId));
-        return;
-      case "delete-collection":
-        if (get().uiSettings.library.collection_id === c.collectionId) void get().setView({ collection_id: null });
-        await mutate("Could not delete the collection", () => api.deleteCollection(c.collectionId));
-        return;
-      case "remove-folder":
-        await mutate("Could not remove the folder", () => api.removeWatchedFolder(c.folderId));
-        return;
-    }
   },
   async addFolder(path) {
     await get().mutate("Could not add the folder", () => api.addWatchedFolder(path));
@@ -488,7 +539,7 @@ export const useApp = create<AppState>((set, get) => ({
     try {
       const list = await api.listAnnotations(bookId);
       if (openBookId(get()) !== bookId) return;
-      set({ annotations: byReadingOrder(list) });
+      set({ annotations: visibleAnnotations(byReadingOrder(list)) });
       await get().redrawHighlights();
     } catch (e) {
       get().notify(`Could not load annotations: ${e}`);
@@ -556,17 +607,50 @@ export const useApp = create<AppState>((set, get) => ({
     set({ annotations: get().annotations.map((x) => (x.id === id ? a : x)) });
     if (patch.color !== undefined) await get().redrawHighlights();
   },
-  async deleteAnnotation(id) {
-    try {
-      await api.deleteAnnotation(id);
-    } catch (e) {
-      return get().notify(`Could not delete: ${e}`);
-    }
-    dropNote(id);
-    set({ annotations: get().annotations.filter((a) => a.id !== id), editingId: get().editingId === id ? null : get().editingId });
-    await get().redrawHighlights();
-  },
 }));
+
+// A crash while the Undo bar is up means the action never ran: the item comes back, which is the safe way to fail.
+const scheduler = createScheduler<Pending>({
+  ms: UNDO_MS,
+  onChange: (pending) => useApp.setState({ pending }),
+  async commit({ action: a }) {
+    const { mutate } = useApp.getState();
+    try {
+      switch (a.kind) {
+        case "remove-book":
+          await mutate("Could not remove the book", () => api.removeBook(a.bookId));
+          return;
+        case "delete-copy":
+          await mutate("Could not delete the managed copy", () => api.removeManagedCopy(a.bookId));
+          return;
+        case "delete-collection":
+          await mutate("Could not delete the collection", () => api.deleteCollection(a.collectionId));
+          return;
+        case "remove-folder":
+          await mutate("Could not remove the folder", () => api.removeWatchedFolder(a.folderId));
+          return;
+        case "delete-annotation":
+          try {
+            await api.deleteAnnotation(a.annotationId);
+            dropNote(a.annotationId);
+          } catch (e) {
+            useApp.getState().notify(`Could not delete: ${e}`);
+            const stashed = stashedAnnotations.get(a.annotationId);
+            const s = useApp.getState();
+            if (stashed && openBookId(s) === stashed.book_id) {
+              useApp.setState({ annotations: byReadingOrder([...s.annotations, stashed]) });
+              void s.redrawHighlights();
+            }
+          }
+          stashedAnnotations.delete(a.annotationId);
+          return;
+      }
+    } finally {
+      hidden = hidden.filter((x) => x !== a);
+      if (a.kind !== "delete-annotation") useApp.setState(visible());
+    }
+  },
+});
 
 onFileChanged((bookId) => {
   const s = useApp.getState();

@@ -20,7 +20,7 @@ function Editor({ annotation }: { annotation: Annotation }) {
   const { id } = annotation;
   const setEditing = useApp((s) => s.setEditing);
   const updateAnnotation = useApp((s) => s.updateAnnotation);
-  const deleteAnnotation = useApp((s) => s.deleteAnnotation);
+  const schedule = useApp((s) => s.schedule);
   const [saver] = useState(() => noteSaver(id, annotation.note ?? "", (note) => updateAnnotation(id, { note })));
   const [text, setText] = useState(saver.text);
   const [status, setStatus] = useState<NoteStatus>(saver.status);
@@ -123,7 +123,7 @@ function Editor({ annotation }: { annotation: Annotation }) {
             </>
           )}
         </span>
-        <Button variant="ghost" size="sm" aria-label={isHighlight ? "Delete highlight" : "Delete bookmark"} onClick={() => void deleteAnnotation(id)}>
+        <Button variant="ghost" size="sm" aria-label={isHighlight ? "Delete highlight" : "Delete bookmark"} onClick={() => schedule({ kind: "delete-annotation", annotationId: id })}>
           <Trash2 /> Delete
         </Button>
       </div>
