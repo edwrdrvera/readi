@@ -11,7 +11,7 @@ import { readerDetail, useApp } from "./lib/store";
 import { useResolvedTheme } from "./lib/theme";
 import { EpubReader } from "./reader/EpubReader";
 import { PdfReader } from "./reader/PdfReader";
-import { BookInfoSheet } from "@/components/BookInfoSheet";
+import { BookInfoPanel } from "@/components/BookInfoPanel";
 import { CollectionEditor } from "@/components/CollectionEditor";
 import { CommandPalette } from "@/components/CommandPalette";
 import { AnnotationEditor } from "@/components/AnnotationEditor";
@@ -58,6 +58,7 @@ function OpenBook({ detail }: { detail: BookDetail }) {
           )}
         </ReaderPage>
         {aaOpen && <ReaderSettingsPanel detail={detail} prefs={prefs} />}
+        <BookInfoPanel />
       </div>
       <HighlightPopover />
       <AnnotationEditor />
@@ -116,7 +117,6 @@ export default function App() {
       {screen.name === "library" && <Library />}
       {screen.name === "settings" && <SettingsPage />}
       {detail && <Reader detail={detail} covered={screen.name === "settings"} />}
-      <BookInfoSheet />
       <UndoBar />
       <CollectionEditor />
       <CommandPalette />

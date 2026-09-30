@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { applyView, continueReading, effectiveView } from "@/lib/libraryView";
 import { useApp } from "@/lib/store";
 import { BookCard, Cover, percentLabel } from "./BookCard";
+import { BookInfoPanel } from "./BookInfoPanel";
 import { DrawerTable } from "./DrawerTable";
 import { LibrarySidebar } from "./LibrarySidebar";
 import { LibraryFilters, LibraryTopBar } from "./LibraryToolbar";
@@ -69,6 +70,7 @@ export function Library() {
           )}
         </div>
       </main>
+      <BookInfoPanel />
     </div>
   );
 }

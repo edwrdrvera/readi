@@ -151,6 +151,14 @@ const themeCommand = (theme: ThemePref, n: number | null): Command => ({
   run: (ctx) => setPref(ctx, "theme", theme),
 });
 
+/** Esc and the close button hand focus back to the book's card or row. */
+export function closeBookInfo() {
+  const s = useApp.getState();
+  const id = s.infoBookId;
+  s.showBookInfo(null);
+  if (id !== null) requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-book-id="${id}"] button`)?.focus());
+}
+
 let settingsOpener: HTMLElement | null = null;
 
 export function openSettings(opener: Element | null = document.activeElement) {
@@ -278,10 +286,13 @@ export const commands: Command[] = [
     // Popovers and sheets dismiss themselves and mark the event handled.
     when: (ctx) => {
       const s = useApp.getState();
-      if (ctx.screen === "settings") return true;
+      if (ctx.screen === "settings" || s.infoBookId !== null) return true;
       return ctx.screen === "reader" && (s.editingId !== null || s.selection !== null || (s.sidebar.open && !s.sidebar.pinned));
     },
-    run: (ctx) => (ctx.screen === "settings" ? closeSettings() : void dismissForemost()),
+    run: (ctx) => {
+      if (ctx.screen === "settings") return closeSettings();
+      if (!dismissForemost() && useApp.getState().infoBookId !== null) closeBookInfo();
+    },
   },
 ];
 

@@ -329,7 +329,7 @@ export const useApp = create<AppState>((set, get) => ({
     return locations;
   },
   showBookInfo(infoBookId) {
-    set({ infoBookId });
+    set(infoBookId === null ? { infoBookId } : { infoBookId, focusedBookId: infoBookId });
     if (infoBookId !== null) void get().loadLocations(infoBookId).catch((e) => get().notify(`Could not load locations: ${e}`));
   },
   schedule(action) {
