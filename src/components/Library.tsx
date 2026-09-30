@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { applyView, continueReading, effectiveView } from "@/lib/libraryView";
 import { useApp } from "@/lib/store";
 import { BookCard, Cover, percentLabel } from "./BookCard";
+import { DrawerTable } from "./DrawerTable";
 import { LibrarySidebar } from "./LibrarySidebar";
 import { LibraryFilters, LibraryTopBar } from "./LibraryToolbar";
 
@@ -54,6 +55,8 @@ export function Library() {
           {!collection && !drawer && <ContinueReading />}
           {empty ? (
             <p className="text-[13px] text-muted-foreground">{empty}</p>
+          ) : drawer ? (
+            <DrawerTable books={shown} />
           ) : (
             <>
               {!collection && <h2 className="mb-3.5 text-xs text-muted-foreground">All books</h2>}
