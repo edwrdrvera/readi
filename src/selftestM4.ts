@@ -641,7 +641,7 @@ async function unresolved(ids: Ids, notices: Notices): Promise<Report> {
     note: null,
   });
   await s().loadAnnotations(ids.typical);
-  s().setSidebar({ open: true, pinned: true, tab: "annotations" });
+  s().setSidebar({ open: true, tab: "annotations" });
   const item = (id: number) => q(`${tid("annotation-item")}[data-id="${id}"]`);
   const states = await until("anchor states in the list", () => {
     const a = item(orphan.id)?.dataset.anchorState;
@@ -670,7 +670,7 @@ async function unresolved(ids: Ids, notices: Notices): Promise<Report> {
   const recoveredVisible = await until("recovered passage visible", () => epubVisibleText().includes("zephyrquill"), 5000).catch(() => false);
   await sleep(500);
   const recoveredOpen = { section: epubSection(reader), visible: recoveredVisible, drawn: epubOverlays(`g[fill="${EPUB_FILL.pink}"]`).length > 0, notices: notices.since(at2) };
-  s().setSidebar({ open: false, pinned: false });
+  s().setSidebar({ open: false });
 
   const db = await api.listAnnotations(ids.typical);
   return {
@@ -711,14 +711,14 @@ async function restart(m4: M4Config, sha: Record<string, string>): Promise<Repor
     const green = (await api.listAnnotations(ids.typical)).find((a) => a.id === prev.epubId)!;
     await reader.showAnnotation(green);
     const drawn = await until("green overlay after restart", () => epubOverlays(`g[fill="${EPUB_FILL.green}"]`).length > 0, 10_000).catch(() => false);
-    s().setSidebar({ open: true, pinned: true, tab: "annotations" });
+    s().setSidebar({ open: true, tab: "annotations" });
     const listed = await until("annotation states", () => {
       const st = (id: number) => q(`${tid("annotation-item")}[data-id="${id}"]`)?.dataset.anchorState;
       const a = st(prev.orphanId);
       const b = st(prev.recoveredId);
       return a && a !== "unknown" && b && b !== "unknown" ? { orphan: a, recovered: b } : null;
     }, 10_000).catch(() => null);
-    s().setSidebar({ open: false, pinned: false });
+    s().setSidebar({ open: false });
     const r = await findInBook(ids.typical, "zephyrquill");
     return { drawn, listed, search: { state: r.state, count: r.results.length } };
   });

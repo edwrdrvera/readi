@@ -127,7 +127,7 @@ export function closeSearch({ restoreFocus }: { restoreFocus: boolean }) {
   if (restoreFocus) requestAnimationFrame(() => target?.focus());
 }
 
-/** Escape: the note editor, then the highlight popover, then an unpinned sidebar. */
+/** Escape: the note editor, then the highlight popover. */
 export function dismissForemost(): boolean {
   const s = useApp.getState();
   if (s.editingId !== null) {
@@ -137,10 +137,6 @@ export function dismissForemost(): boolean {
   if (s.selection) {
     activeReader()?.clearSelection();
     s.setSelection(null);
-    return true;
-  }
-  if (s.screen.name === "reader" && s.sidebar.open && !s.sidebar.pinned) {
-    closeSidebar();
     return true;
   }
   return false;
@@ -290,7 +286,7 @@ export const commands: Command[] = [
     when: (ctx) => {
       const s = useApp.getState();
       if (ctx.screen === "settings" || s.infoBookId !== null) return true;
-      return ctx.screen === "reader" && (s.editingId !== null || s.selection !== null || (s.sidebar.open && !s.sidebar.pinned));
+      return ctx.screen === "reader" && (s.editingId !== null || s.selection !== null);
     },
     run: (ctx) => {
       if (ctx.screen === "settings") return closeSettings();

@@ -1,8 +1,5 @@
-import { Pin, PinOff, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { BookDetail } from "@/lib/api";
-import { closeSidebar } from "@/lib/commands";
 import { useApp, type SidebarTab } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { AnnotationsTab } from "./AnnotationsTab";
@@ -16,7 +13,7 @@ const TABS: Array<{ id: SidebarTab; label: string }> = [
 ];
 
 export function ReaderSidebar({ detail }: { detail: BookDetail }) {
-  const { open, pinned, tab } = useApp((s) => s.sidebar);
+  const { open, tab } = useApp((s) => s.sidebar);
   const setSidebar = useApp((s) => s.setSidebar);
   if (!open) return null;
 
@@ -33,17 +30,16 @@ export function ReaderSidebar({ detail }: { detail: BookDetail }) {
     <aside
       data-reader-sidebar
       aria-label="Sidebar"
-      className={cn("z-30 flex w-60 shrink-0 flex-col border-r bg-background", pinned ? "relative" : "absolute inset-y-0 left-0 shadow-xl")}
+      className="flex w-60 shrink-0 flex-col border-r bg-background"
       onKeyDown={(e) => {
         // The window handler skips editable targets, so Escape in the search or filter field lands here.
         if (e.key !== "Escape" || e.defaultPrevented) return;
         e.preventDefault();
-        if (pinned) document.querySelector<HTMLElement>("[data-reading-region]")?.focus();
-        else closeSidebar();
+        document.querySelector<HTMLElement>("[data-reading-region]")?.focus();
       }}
     >
-      <div className="flex items-center gap-1 px-3 pt-3 pb-2">
-        <div role="tablist" aria-label="Sidebar" className="flex flex-1 gap-1">
+      <div className="px-3 pt-3 pb-2">
+        <div role="tablist" aria-label="Sidebar" className="flex gap-1 rounded-lg bg-muted p-0.5">
           {TABS.map((t, i) => (
             <button
               key={t.id}
@@ -64,12 +60,6 @@ export function ReaderSidebar({ detail }: { detail: BookDetail }) {
             </button>
           ))}
         </div>
-        <Button variant="ghost" size="icon-sm" className="size-7" aria-pressed={pinned} aria-label={pinned ? "Unpin sidebar" : "Pin sidebar"} onClick={() => setSidebar({ pinned: !pinned })}>
-          {pinned ? <PinOff /> : <Pin />}
-        </Button>
-        <Button variant="ghost" size="icon-sm" className="size-7" aria-label="Close sidebar" onClick={closeSidebar}>
-          <X />
-        </Button>
       </div>
       <ScrollArea className="min-h-0 flex-1">
         <div role="tabpanel" id={`sidebar-panel-${tab}`} aria-labelledby={`sidebar-tab-${tab}`}>

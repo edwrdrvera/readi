@@ -1,6 +1,5 @@
 import { useEffect, useMemo } from "react";
 import type { BookDetail, TocItem } from "@/lib/api";
-import { closeSidebar } from "@/lib/commands";
 import { useApp } from "@/lib/store";
 import { activeTocItem, flattenToc } from "@/lib/toc";
 import { activeReader } from "@/reader/handle";
@@ -22,7 +21,6 @@ export function ContentsTab({ detail }: { detail: BookDetail }) {
     const reader = activeReader();
     if (reader?.bookId !== detail.book.id) return;
     await reader.goTo(isPdf ? Number(target) : target);
-    if (!useApp.getState().sidebar.pinned) closeSidebar();
   };
 
   const render = (items: TocItem[], depth: number) => (

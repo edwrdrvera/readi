@@ -66,7 +66,7 @@ interface AppState {
   defaults: Prefs;
   /** Overrides of the open book; empty in the Library. */
   overrides: Overrides;
-  sidebar: { open: boolean; pinned: boolean; tab: SidebarTab };
+  sidebar: { open: boolean; tab: SidebarTab };
   /** The open book's annotations in reading order. */
   annotations: Annotation[];
   /** The reader's current text selection, while the highlight popover is up. */
@@ -217,7 +217,7 @@ export const useApp = create<AppState>((set, get) => ({
   saveStatus: null,
   defaults: DEFAULT_PREFS,
   overrides: {},
-  sidebar: { open: false, pinned: false, tab: "contents" },
+  sidebar: { open: false, tab: "contents" },
   annotations: [],
   selection: null,
   editingId: null,
@@ -571,7 +571,7 @@ export const useApp = create<AppState>((set, get) => ({
       if (get().editingId === null) sidebarOpenedForNote = !sidebar.open;
       return set({ editingId, sidebar: { ...sidebar, open: true, tab: "annotations" } });
     }
-    if (sidebarOpenedForNote && !sidebar.pinned) set({ sidebar: { ...sidebar, open: false } });
+    if (sidebarOpenedForNote) set({ sidebar: { ...sidebar, open: false } });
     sidebarOpenedForNote = false;
     set({ editingId });
   },

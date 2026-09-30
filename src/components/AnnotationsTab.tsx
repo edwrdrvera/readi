@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { Annotation } from "@/lib/api";
 import { filterAnnotations, positionLabel } from "@/lib/annotations";
-import { closeSidebar } from "@/lib/commands";
 import { showAnnotation } from "@/lib/jumps";
 import { useApp } from "@/lib/store";
 import { AnnotationCard } from "./AnnotationCard";
@@ -24,7 +23,6 @@ export function AnnotationsTab() {
   }, [annotations, filter, editingId]);
 
   const open = async (a: Annotation) => {
-    if (!useApp.getState().sidebar.pinned) closeSidebar();
     await showAnnotation(a);
   };
 
