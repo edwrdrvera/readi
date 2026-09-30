@@ -153,6 +153,9 @@ ALTER TABLE text_segments ADD COLUMN mapping TEXT;
 ALTER TABLE annotations ADD COLUMN sort_key REAL NOT NULL DEFAULT 0;
 ALTER TABLE annotations ADD COLUMN anchor_state TEXT NOT NULL DEFAULT 'unknown' CHECK (anchor_state IN ('unknown','resolved','unresolved'));
 CREATE INDEX annotations_book ON annotations(book_id, sort_key);
+"#, r#"
+ALTER TABLE book_preferences ADD COLUMN page_width TEXT;
+ALTER TABLE book_preferences ADD COLUMN text_align TEXT;
 "#];
 
 pub fn now() -> i64 {

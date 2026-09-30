@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Minus, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { FONT_SIZE, LINE_HEIGHTS, type PrefKey, type Prefs } from "@/lib/prefs";
+import { FONT_SIZE, LINE_HEIGHTS, nearestLineSpacing, type LineSpacing, type PrefKey, type Prefs } from "@/lib/prefs";
 
 export type PrefGroup = "layout" | "text" | "pdf";
 
@@ -78,7 +78,9 @@ export function PrefsForm({ values, groups, onChange, overridden = {}, onClear }
               </Button>
             </div>,
           )}
-          {row("line_height", "Line spacing", <Choice label="Line spacing" value={String(values.line_height)} options={LINE_HEIGHTS.map((h) => [String(h), String(h)] as [string, string])} onChange={(v) => onChange("line_height", Number(v))} />)}
+          {row("line_height", "Line spacing", <Choice label="Line spacing" value={nearestLineSpacing(values.line_height)} options={[["tight", "Tight"], ["normal", "Normal"], ["loose", "Loose"]]} onChange={(v) => onChange("line_height", LINE_HEIGHTS[v as LineSpacing])} />)}
+          {row("page_width", "Page width", <Choice label="Page width" value={values.page_width} options={[["narrow", "Narrow"], ["medium", "Medium"], ["wide", "Wide"]]} onChange={(v) => onChange("page_width", v)} />)}
+          {row("text_align", "Justify text", <Choice label="Justify text" value={values.text_align} options={[["left", "Off"], ["justify", "On"]]} onChange={(v) => onChange("text_align", v)} />)}
         </>
       )}
       {groups.includes("pdf") && (
