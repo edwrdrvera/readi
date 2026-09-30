@@ -286,7 +286,7 @@ export const commands: Command[] = [
     label: "Dismiss",
     palette: false,
     shortcuts: [{ key: "Escape" }],
-    // Popovers and sheets dismiss themselves and mark the event handled.
+    // Popovers and menus dismiss themselves and mark the event handled.
     when: (ctx) => {
       const s = useApp.getState();
       if (ctx.screen === "settings" || s.infoBookId !== null) return true;
