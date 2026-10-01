@@ -93,7 +93,10 @@ export interface LibraryView {
 export interface UiSettings {
   library: LibraryView;
   always_show_controls: boolean;
+  library_layout: LibraryLayout;
 }
+
+export type LibraryLayout = "grid" | "shelf";
 
 /** Backend events. */
 export const EVENTS = {

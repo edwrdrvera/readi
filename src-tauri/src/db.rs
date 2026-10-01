@@ -1075,12 +1075,15 @@ mod tests {
         assert_eq!(get_ui_settings(&conn).unwrap(), UiSettings::default());
         let mut s = UiSettings::default();
         s.always_show_controls = true;
+        s.library_layout = LibraryLayout::Shelf;
         s.library.sort = SortKey::Title;
         s.library.author = Some("Le Guin".into());
         set_ui_settings(&conn, &s).unwrap();
         assert_eq!(get_ui_settings(&conn).unwrap(), s);
 
         assert!(serde_json::from_str::<UiSettings>(r#"{"library":{"sort":"title"},"extra":1}"#).is_err());
+        assert!(serde_json::from_str::<UiSettings>(r#"{"library_layout":"stack"}"#).is_err());
+        assert_eq!(serde_json::from_str::<UiSettings>(r#"{"always_show_controls":true}"#).unwrap().library_layout, LibraryLayout::Grid);
         s.library.author = Some("a".repeat(513));
         assert!(set_ui_settings(&conn, &s).is_err());
         conn.execute("UPDATE app_settings SET value = '{bad' WHERE key = 'ui'", []).unwrap();

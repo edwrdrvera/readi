@@ -4,10 +4,11 @@ import { useApp } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { PrefsForm } from "./PrefsForm";
 import { LibrarySidebar } from "./LibrarySidebar";
-import { AlwaysShowControlsSetting, ExcludedBooksSettings, WatchedFoldersSettings } from "./LibrarySettings";
+import { AlwaysShowControlsSetting, LibraryLayoutSetting, ExcludedBooksSettings, WatchedFoldersSettings } from "./LibrarySettings";
 
 const SECTIONS = [
   ["settings-reading", "Reading"],
+  ["settings-library", "Library"],
   ["settings-folders", "Watched folders"],
   ["settings-excluded", "Excluded books"],
 ] as const;
@@ -60,6 +61,8 @@ export function SettingsPage() {
             {form(["text"])}
             <SectionLabel>PDF</SectionLabel>
             {form(["pdf"])}
+            <SectionLabel id="settings-library">Library</SectionLabel>
+            <LibraryLayoutSetting />
             <WatchedFoldersSettings />
             <ExcludedBooksSettings />
           </div>

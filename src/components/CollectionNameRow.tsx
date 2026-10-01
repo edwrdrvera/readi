@@ -46,7 +46,7 @@ export function CollectionNameRow({ collectionId, initial, onSave }: { collectio
 
   return (
     <li className="flex flex-col gap-1 py-px">
-      <div className="flex h-[30px] items-center gap-2.5 rounded-md bg-background px-2.5 ring-2 ring-ring [&_svg]:size-4 [&_svg]:shrink-0">
+      <div className="flex h-[30px] items-center gap-2.5 rounded-md bg-background px-2.5 ring-1 ring-foreground/25 [&_svg]:size-4 [&_svg]:shrink-0">
         <Tag />
         <input
           ref={input}

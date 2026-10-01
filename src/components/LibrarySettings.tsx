@@ -1,8 +1,9 @@
 import { open } from "@tauri-apps/plugin-dialog";
-import type { WatchedFolder } from "@/lib/api";
+import type { LibraryLayout, WatchedFolder } from "@/lib/api";
 import { useApp } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 const ACCESS: Record<WatchedFolder["access_state"], string> = {
   ok: "Available",
@@ -100,5 +101,25 @@ export function AlwaysShowControlsSetting() {
       Always show controls
       <Switch checked={on} onCheckedChange={(v) => void setUiSettings({ always_show_controls: v })} />
     </label>
+  );
+}
+
+export function LibraryLayoutSetting() {
+  const layout = useApp((s) => s.uiSettings.library_layout);
+  const setUiSettings = useApp((s) => s.setUiSettings);
+  return (
+    <div className="flex min-h-12 items-center justify-between gap-4 border-b py-2 text-[13px]">
+      <span id="library-layout">Layout</span>
+      <ToggleGroup
+        type="single"
+        value={layout}
+        onValueChange={(v) => v && void setUiSettings({ library_layout: v as LibraryLayout })}
+        aria-labelledby="library-layout"
+        className="w-40"
+      >
+        <ToggleGroupItem value="grid">Grid</ToggleGroupItem>
+        <ToggleGroupItem value="shelf">Shelf</ToggleGroupItem>
+      </ToggleGroup>
+    </div>
   );
 }

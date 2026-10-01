@@ -118,7 +118,7 @@ export function OmniboxInput({ className, autoFocus }: { className?: string; aut
   const { scope, open, query, setSearch, options, active, onKeyDown } = useOmnibox();
   const ref = useRef<HTMLInputElement>(null);
   return (
-    <label className={cn("flex h-7 items-center gap-1.5 rounded-md bg-muted px-2.5 text-[13px] text-muted-foreground focus-within:ring-2 focus-within:ring-ring", className)}>
+    <label className={cn("flex h-7 items-center gap-1.5 rounded-md bg-muted px-2.5 text-[13px] text-muted-foreground focus-within:ring-1 focus-within:ring-foreground/20", className)}>
       <Search className="size-3.5 shrink-0" />
       <input
         ref={ref}

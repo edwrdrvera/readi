@@ -56,13 +56,14 @@ export function SearchTab({ detail }: { detail: BookDetail }) {
 
   let index = 0;
   return (
-    <div className="flex flex-col gap-2 p-2">
+    <div className="flex flex-col gap-1.5 p-2">
       <Input
         data-testid="search-input"
         type="search"
         aria-label="Search in this book"
         aria-describedby="search-hint"
         placeholder="Search in book"
+        className="h-8 px-2.5 text-xs"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={(e) => {
@@ -75,16 +76,16 @@ export function SearchTab({ detail }: { detail: BookDetail }) {
           }
         }}
       />
-      <p id="search-hint" className="px-1 text-xs text-muted-foreground">
+      <p id="search-hint" className="px-1 text-[11px] leading-snug text-muted-foreground">
         Words match regardless of case; “quotes” match a phrase. Languages written without spaces may not match every word.
       </p>
       {error && (
-        <p role="alert" className="px-1 text-xs text-destructive">
+        <p role="alert" className="px-1 text-[11px] text-destructive">
           Search failed: {error}
         </p>
       )}
       {status !== "idle" && status !== "loading" && (
-        <div data-testid="search-status" data-state={status} role="status" className="px-1 text-xs text-muted-foreground">
+        <div data-testid="search-status" data-state={status} role="status" className="px-1 text-[11px] text-muted-foreground">
           {status === "indexing" && "Still indexing. Results may be incomplete"}
           {status === "no_text" && "This book has no searchable text (for example, a scanned PDF)"}
           {status === "failed" && (
@@ -101,10 +102,10 @@ export function SearchTab({ detail }: { detail: BookDetail }) {
         </div>
       )}
       {data && data.groups.length > 0 && (
-        <ul aria-label="Search results" className="m-0 flex list-none flex-col gap-3 p-0">
+        <ul aria-label="Search results" className="m-0 flex list-none flex-col gap-2 p-0">
           {data.groups.map((g) => (
             <li key={g.order}>
-              <h3 className="px-1 pb-1 text-xs font-semibold text-muted-foreground">{groupLabel(g, fmt)}</h3>
+              <h3 className="px-1 pb-0.5 text-[11px] font-semibold text-muted-foreground">{groupLabel(g, fmt)}</h3>
               <ul className="m-0 flex list-none flex-col p-0">
                 {g.hits.map((hit, i) => {
                   const n = index++;
@@ -114,10 +115,10 @@ export function SearchTab({ detail }: { detail: BookDetail }) {
                         data-testid="search-result"
                         data-order={hit.order}
                         data-index={n}
-                        className="w-full rounded-md px-2 py-1.5 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+                        className="w-full rounded-md px-2 py-1 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
                         onClick={() => void open(hit)}
                       >
-                        <Snippet hit={hit} />
+                        <Snippet hit={hit} className="text-xs" />
                       </button>
                     </li>
                   );
