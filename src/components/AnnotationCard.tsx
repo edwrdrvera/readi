@@ -50,7 +50,7 @@ export function AnnotationCard({ annotation }: { annotation: Annotation }) {
       aria-label={isHighlight ? "Edit highlight" : "Edit bookmark"}
       data-testid="annotation-editor"
       data-id={id}
-      className="note-card flex flex-col gap-2.5 rounded-lg border bg-popover p-3 text-sm shadow-[0_1px_2px_rgba(0,0,0,.08)]"
+      className="note-card flex flex-col gap-2 rounded-lg border bg-popover p-2.5 text-xs shadow-[0_1px_2px_rgba(0,0,0,.08)]"
       onKeyDown={(e) => {
         if (e.key !== "Escape") return;
         e.preventDefault();
@@ -58,7 +58,7 @@ export function AnnotationCard({ annotation }: { annotation: Annotation }) {
       }}
     >
       <div className="flex items-start gap-2">
-        <p className="line-clamp-4 flex-1 text-[13px] leading-snug">
+        <p className="line-clamp-4 flex-1 text-xs leading-snug">
           {annotation.quote || positionLabel(annotation)}
         </p>
         <Button variant="ghost" size="icon-sm" className="-mt-1 -mr-1" aria-label="Close editor" onClick={() => setEditing(null)}>
@@ -74,7 +74,7 @@ export function AnnotationCard({ annotation }: { annotation: Annotation }) {
               aria-checked={annotation.color === c}
               aria-label={c}
               data-testid={`editor-color-${c}`}
-              className={cn("size-6 rounded-full border border-black/10 outline-none focus-visible:ring-2 focus-visible:ring-ring", annotation.color === c && "ring-2 ring-foreground/60")}
+              className={cn("size-5 rounded-full border border-black/10 outline-none focus-visible:ring-2 focus-visible:ring-ring", annotation.color === c && "ring-2 ring-foreground/60")}
               style={{ background: SWATCH[c] }}
               onClick={() =>
                 void updateAnnotation(id, { color: c }).then(
@@ -96,23 +96,23 @@ export function AnnotationCard({ annotation }: { annotation: Annotation }) {
         data-testid="note-editor"
         aria-label="Note"
         placeholder="Add a note"
-        rows={4}
+        rows={3}
         value={text}
         onChange={(e) => {
           setText(e.target.value);
           saver.update(e.target.value);
         }}
         onBlur={() => void saver.flush()}
-        className="w-full resize-none rounded-md border bg-transparent px-2 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="w-full resize-none rounded-md border bg-transparent px-2 py-1.5 text-xs outline-none focus-visible:border-foreground/30 focus-visible:ring-[3px] focus-visible:ring-foreground/10"
       />
       <div className="flex items-center gap-2">
-        <span data-testid="note-status" data-state={status.kind} role="status" className={cn("flex-1 text-xs", status.kind === "error" ? "text-destructive" : "text-muted-foreground")}>
+        <span data-testid="note-status" data-state={status.kind} role="status" className={cn("flex-1 text-[11px]", status.kind === "error" ? "text-destructive" : "text-muted-foreground")}>
           {status.kind === "saving" && "Saving…"}
           {status.kind === "saved" && "Saved"}
           {status.kind === "error" && (
             <>
               Note not saved.{" "}
-              <Button variant="link" size="sm" className="h-auto p-0 text-xs" data-testid="note-retry" onClick={() => void saver.flush()}>
+              <Button variant="link" size="sm" className="h-auto p-0 text-[11px]" data-testid="note-retry" onClick={() => void saver.flush()}>
                 Retry
               </Button>
             </>

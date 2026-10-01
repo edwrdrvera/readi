@@ -27,23 +27,24 @@ export function AnnotationsTab() {
   };
 
   return (
-    <div className="flex flex-col gap-2 p-2">
+    <div className="flex flex-col gap-1.5 p-2">
       <Input
         data-testid="annotation-filter"
         type="search"
         aria-label="Filter highlights and bookmarks by quote or note"
         placeholder="Filter quotes and notes"
+        className="h-8 px-2.5 text-xs"
         value={filter}
         onChange={(e) => setFilter(e.target.value)}
       />
       {annotations.length === 0 ? (
-        <p className="p-1 text-sm text-muted-foreground">Select text to highlight it, or press ⌘D to add a bookmark.</p>
+        <p className="px-1 text-xs text-muted-foreground">Select text to highlight it, or press ⌘D to add a bookmark.</p>
       ) : shown.length === 0 ? (
-        <p className="p-1 text-sm text-muted-foreground" role="status">
+        <p className="px-1 text-xs text-muted-foreground" role="status">
           No highlights or bookmarks match.
         </p>
       ) : (
-        <ul aria-label="Highlights and bookmarks" className="m-0 flex list-none flex-col gap-1 p-0">
+        <ul aria-label="Highlights and bookmarks" className="m-0 flex list-none flex-col gap-0.5 p-0">
           {shown.map((a) => {
             if (a.id === editingId) return <AnnotationCard key={a.id} annotation={a} />;
             const unresolved = a.anchor_state === "unresolved";
@@ -51,7 +52,7 @@ export function AnnotationsTab() {
             return (
               <li key={a.id} data-testid="annotation-item" data-id={a.id} data-anchor-state={a.anchor_state} className="group flex items-start gap-1 rounded-md hover:bg-muted">
                 <button
-                  className="flex min-w-0 flex-1 gap-2 rounded-md px-2 py-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="flex min-w-0 flex-1 gap-2 rounded-md px-2 py-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   aria-label={`${a.kind === "bookmark" ? "Bookmark" : `${a.color} highlight`}, ${positionLabel(a)}${unresolved ? ", unresolved" : ""}: ${text}`}
                   onClick={() => void open(a)}
                 >
@@ -61,8 +62,8 @@ export function AnnotationsTab() {
                     <span className="mt-1 size-2.5 shrink-0 rounded-full" style={{ background: SWATCH[a.color ?? "yellow"] }} aria-hidden />
                   )}
                   <span className="flex min-w-0 flex-col gap-0.5">
-                    <span className="line-clamp-3 text-[13px] leading-snug">{text}</span>
-                    {a.note && <span className="line-clamp-2 text-xs text-muted-foreground italic">{a.note}</span>}
+                    <span className="line-clamp-3 text-xs leading-snug">{text}</span>
+                    {a.note && <span className="line-clamp-2 text-[11px] text-muted-foreground italic">{a.note}</span>}
                     <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
                       {positionLabel(a)}
                       {unresolved && (
