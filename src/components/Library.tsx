@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { BookCard, Cover, percentLabel } from "./BookCard";
 import { BookInfoPanel } from "./BookInfoPanel";
 import { DrawerTable } from "./DrawerTable";
+import { LibraryShelf } from "./LibraryShelf";
 import { LibrarySidebar } from "./LibrarySidebar";
 import { LibraryFilters, LibraryTopBar } from "./LibraryToolbar";
 import { OmniboxProvider, OmniboxResults } from "./Omnibox";
@@ -42,6 +43,7 @@ export function Library() {
   const stored = useApp((s) => s.uiSettings.library);
   const collections = useApp((s) => s.collections);
   const searching = useApp((s) => s.search.open);
+  const shelf = useApp((s) => s.uiSettings.library_layout === "shelf");
   const view = useMemo(() => effectiveView(stored), [stored]);
   const shown = useMemo(() => applyView(books, view), [books, view]);
   const collection = collections.find((c) => c.id === view.collection_id);
@@ -66,11 +68,15 @@ export function Library() {
           ) : (
             <>
               {!collection && <h2 className="mb-3.5 text-xs text-muted-foreground">All books</h2>}
+              {shelf ? (
+                <LibraryShelf books={shown} />
+              ) : (
               <ul className="grid list-none grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-x-7 gap-y-8 2xl:grid-cols-6">
                 {shown.map((b) => (
                   <BookCard key={b.id} book={b} />
                 ))}
               </ul>
+              )}
             </>
           )}
         </div>
