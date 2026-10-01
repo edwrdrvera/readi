@@ -103,7 +103,7 @@ export function AnnotationCard({ annotation }: { annotation: Annotation }) {
           saver.update(e.target.value);
         }}
         onBlur={() => void saver.flush()}
-        className="w-full resize-none rounded-md border bg-transparent px-2 py-1.5 text-xs outline-none focus-visible:border-foreground/30 focus-visible:ring-[3px] focus-visible:ring-foreground/10"
+        className="w-full resize-none rounded-md border bg-transparent px-2 py-1.5 text-xs outline-none focus-visible:border-foreground/25"
       />
       <div className="flex items-center gap-2">
         <span data-testid="note-status" data-state={status.kind} role="status" className={cn("flex-1 text-[11px]", status.kind === "error" ? "text-destructive" : "text-muted-foreground")}>
