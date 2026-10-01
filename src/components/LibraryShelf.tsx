@@ -1,5 +1,6 @@
-import { useState } from "react";
-import type { BookSummary } from "@/lib/api";
+import { useEffect, useState } from "react";
+import { coverUrl, type BookSummary } from "@/lib/api";
+import { coverSpineColors, type SpineColors } from "@/lib/coverPalette";
 import { useApp } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
@@ -34,10 +35,25 @@ function ctaLabel(book: BookSummary) {
   return book.reading_state === "reading" ? "Continue reading" : "Start reading";
 }
 
+function useSpineColors(book: BookSummary): SpineColors {
+  const [bg, ink] = SPINES[book.id % SPINES.length];
+  const [fromCover, setFromCover] = useState<SpineColors | null>(null);
+  useEffect(() => {
+    if (!book.has_cover) return setFromCover(null);
+    let live = true;
+    void coverSpineColors(book.id).then((c) => live && setFromCover(c));
+    return () => {
+      live = false;
+    };
+  }, [book.id, book.has_cover]);
+  return fromCover ?? { bg, ink };
+}
+
 function Spine({ book, open, onPick }: { book: BookSummary; open: boolean; onPick: () => void }) {
   const { ref, focused } = useFocusedRow(book.id);
   const focusBook = useApp((s) => s.focusBook);
-  const [bg, ink] = SPINES[book.id % SPINES.length];
+  const { bg, ink } = useSpineColors(book);
+  const [coverFailed, setCoverFailed] = useState(false);
   const author = book.authors[0] ?? "Unknown author";
   const width = open ? 236 : 34 + ((book.title.length * 7 + book.id * 5) % 16);
   const height = open ? 340 : 280 + ((book.id * 37) % 26);
@@ -59,7 +75,12 @@ function Spine({ book, open, onPick }: { book: BookSummary; open: boolean; onPic
               !book.available && "opacity-50 grayscale",
             )}
           >
-            {open ? (
+            {open && book.has_cover && !coverFailed ? (
+              <>
+                <img src={coverUrl(book.id)} alt="" className="absolute inset-0 size-full object-cover" onError={() => setCoverFailed(true)} />
+                <span className="absolute inset-y-0 left-0 w-2.5 bg-[linear-gradient(90deg,rgb(0_0_0/.28),rgb(255_255_255/.08)_60%,transparent)]" />
+              </>
+            ) : open ? (
               <>
                 <span className="absolute inset-0 flex flex-col justify-between px-[22px] pt-7 pb-6 text-left">
                   <span className="text-[11px] tracking-[.14em] uppercase opacity-75">{book.format}</span>
