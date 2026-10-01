@@ -26,7 +26,7 @@ import { dropNote, flushNotes } from "./notes";
 import { createScheduler, UNDO_MS, type HoldReason, type PendingAction } from "./pending";
 import { activeReader, type SelectionInfo } from "../reader/handle";
 
-export const DEFAULT_UI_SETTINGS: UiSettings = { library: DEFAULT_VIEW, always_show_controls: false };
+export const DEFAULT_UI_SETTINGS: UiSettings = { library: DEFAULT_VIEW, always_show_controls: false, library_layout: "grid" };
 
 /** The action the Undo bar shows, with its message worked out while the item was still listed. */
 export interface Pending {

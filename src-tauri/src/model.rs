@@ -398,6 +398,15 @@ impl Default for LibraryView {
 pub struct UiSettings {
     pub library: LibraryView,
     pub always_show_controls: bool,
+    pub library_layout: LibraryLayout,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum LibraryLayout {
+    #[default]
+    Grid,
+    Shelf,
 }
 
 /// Metadata and contents produced by the JavaScript format adapters.
