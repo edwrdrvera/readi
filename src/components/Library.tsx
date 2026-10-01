@@ -71,11 +71,11 @@ export function Library() {
               {shelf ? (
                 <LibraryShelf books={shown} />
               ) : (
-              <ul className="grid list-none grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-x-7 gap-y-8 2xl:grid-cols-6">
-                {shown.map((b) => (
-                  <BookCard key={b.id} book={b} />
-                ))}
-              </ul>
+                <ul className="grid list-none grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-x-7 gap-y-8 2xl:grid-cols-6">
+                  {shown.map((b) => (
+                    <BookCard key={b.id} book={b} />
+                  ))}
+                </ul>
               )}
             </>
           )}
