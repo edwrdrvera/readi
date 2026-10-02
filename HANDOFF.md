@@ -33,7 +33,7 @@ Run on 2026-10-01 against a release build of main (343341c) with a fresh data di
 
 Findings to fix:
 
-- **A. Duplicate bookmarks.** ⌘D on an already bookmarked page adds a second identical bookmark, and the toolbar button always reads "Add bookmark". Expected: toggle, or no-op with a visible bookmarked state.
+- **A. Duplicate bookmarks. Fixed:** a bookmark on the same PDF page, or within 1% of the same EPUB section, shows "Already bookmarked" (`sameSpot` in `src/lib/annotations.ts`; verified on the release build). ⌘D on an already bookmarked page adds a second identical bookmark, and the toolbar button always reads "Add bookmark". Expected: toggle, or no-op with a visible bookmarked state.
 - **B. Search snippet accessible names drop the space before the hit.** VoiceOver would read "silverharbor". Seen in the in-book Search tab (`button page 2 Letter ship bridge silverharbor quiet salt quiet.`). On-screen text is spaced correctly.
 - **C. Library search hit lands without highlight.** Opening a ⌘⇧F hit goes to the right page but does not mark the word; ⌘F hits do.
 - **D. Whole-page PDF selection, seen once.** On large.pdf a drag then double-click left the whole page selected (green) with no popover and nothing stored. Not reproduced on text.pdf. Needs a real-mouse retry.
@@ -78,12 +78,11 @@ Keystrokes need the window focused; if `window_not_focused` comes back, pass `--
 
 ## Next steps, in order
 
-1. Finding A (duplicate bookmarks): a `TODO(human)` sits in `addBookmark` in `src/lib/store.ts`.
-2. Startup error dialog: stop the empty Library rendering behind it (for example a `startup_error` command the frontend checks before it renders).
-3. Findings C, D, E from the manual checks.
-4. Strip the self-test commands from release builds (M5 item 6): gate `selftest_*` behind a cargo feature that `packaged-check.mjs` builds with.
-5. Real VoiceOver pass and the menu-bar checks, by hand.
-6. Performance re-measure (M5 item 7), then push `feat/m5-release` and open the PR into main.
+1. Startup error dialog: stop the empty Library rendering behind it (for example a `startup_error` command the frontend checks before it renders).
+2. Findings C, D, E from the manual checks.
+3. Strip the self-test commands from release builds (M5 item 6): gate `selftest_*` behind a cargo feature that `packaged-check.mjs` builds with.
+4. Real VoiceOver pass and the menu-bar checks, by hand.
+5. Performance re-measure (M5 item 7), then push `feat/m5-release` and open the PR into main.
 
 ## Log
 
