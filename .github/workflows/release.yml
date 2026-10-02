@@ -1,0 +1,64 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    env:
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm assets
+      - run: npx tsc --noEmit
+      - run: pnpm test
+      - run: node scripts/notices.mjs --check
+      - name: cargo test
+        working-directory: src-tauri
+        run: cargo test
+
+      # Tauri signs and notarizes when the APPLE_* variables are set. Without them the
+      # build is ad-hoc signed and published as an unsigned developer preview (spec §11).
+      - name: Build
+        run: pnpm tauri build --target universal-apple-darwin --bundles app,dmg
+
+      - name: Publish draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          dmg=$(ls src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg)
+          if [ -n "$APPLE_SIGNING_IDENTITY" ]; then
+            title="Readi ${GITHUB_REF_NAME}"
+            notes="Signed and notarized build."
+          else
+            title="Readi ${GITHUB_REF_NAME} (unsigned developer preview)"
+            notes="Unsigned developer preview. macOS will block the first launch; right-click Readi.app and choose Open. No automatic updates."
+            mv "$dmg" "${dmg%.dmg}-unsigned.dmg"
+            dmg="${dmg%.dmg}-unsigned.dmg"
+          fi
+          gh release create "$GITHUB_REF_NAME" "$dmg" THIRD_PARTY_NOTICES.md --draft --title "$title" --notes "$notes"

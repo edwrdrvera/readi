@@ -29,6 +29,7 @@ jobs:
       - run: pnpm assets
       - run: npx tsc --noEmit
       - run: pnpm test
+      - run: node scripts/notices.mjs --check
 
       - name: cargo test
         working-directory: src-tauri

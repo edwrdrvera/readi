@@ -400,7 +400,22 @@ pub fn run() {
                 Err(_) => app.path().app_data_dir()?,
             };
             std::fs::create_dir_all(&data_dir)?;
-            let lib = Arc::new(Library::open(&data_dir).map_err(|e| format!("Cannot open library: {e}"))?);
+            let lib = match Library::open(&data_dir) {
+                Ok(lib) => Arc::new(lib),
+                Err(e) => {
+                    use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+                    let handle = app.handle().clone();
+                    app.dialog()
+                        .message(format!(
+                            "{e}.\n\nYour books and reading data have not been changed. The library is in:\n{}",
+                            data_dir.display()
+                        ))
+                        .title("Readi can't open your library")
+                        .kind(MessageDialogKind::Error)
+                        .show(move |_| handle.exit(1));
+                    return Ok(());
+                }
+            };
             let handle = app.handle().clone();
             let jobs = Jobs::new(
                 lib.clone(),

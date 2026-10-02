@@ -21,7 +21,7 @@ import { upsertJob } from "./jobs";
 import { DEFAULT_VIEW, effectiveView, hasFilters, matchesView } from "./libraryView";
 import { DEFAULT_PREFS, type Overrides, type PrefKey, type Prefs } from "./prefs";
 import type { SaveStatus } from "./progress";
-import { applyAnchorStates, byReadingOrder } from "./annotations";
+import { applyAnchorStates, byReadingOrder, sameSpot } from "./annotations";
 import { dropNote, flushNotes } from "./notes";
 import { createScheduler, UNDO_MS, type HoldReason, type PendingAction } from "./pending";
 import { activeReader, type SelectionInfo } from "../reader/handle";
@@ -638,6 +638,9 @@ export const useApp = create<AppState>((set, get) => ({
     if (id === null || reader?.bookId !== id) return;
     const at = reader.bookmark();
     if (!at) return get().notify("Could not add a bookmark here");
+    if (get().annotations.some((a) => a.kind === "bookmark" && a.book_id === id && sameSpot(a, at))) {
+      return get().notify("Already bookmarked");
+    }
     try {
       const a = await api.createAnnotation({ book_id: id, kind: "bookmark", anchor: at.anchor, quote: at.quote, context: null, color: null, note: null, sort_key: at.sort_key });
       set({ annotations: byReadingOrder([...get().annotations, a]) });

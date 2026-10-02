@@ -1,8 +1,17 @@
-import type { Annotation, AnchorState, BookSearch, SearchGroup } from "./api";
+import type { Anchor, Annotation, AnchorState, BookSearch, SearchGroup } from "./api";
 
 export const byReadingOrder = (list: Annotation[]) => [...list].sort((a, b) => a.sort_key - b.sort_key || a.id - b.id);
 
 /** Case-insensitive match over quotes and notes; every whitespace-separated term must appear. */
+/** A PDF bookmark is per page; an EPUB one matches within 1% of the same section, so a nudge of the scroll position still counts as the same spot. */
+export function sameSpot(a: Pick<Annotation, "anchor" | "sort_key">, b: { anchor: Anchor; sort_key: number }): boolean {
+  if (a.anchor.type !== "position" || b.anchor.type !== "position") return false;
+  const [x, y] = [a.anchor.locator, b.anchor.locator];
+  if (x.format === "pdf" && y.format === "pdf") return x.page_index === y.page_index;
+  if (x.format === "epub" && y.format === "epub") return x.section_index === y.section_index && Math.abs(a.sort_key - b.sort_key) < 0.01;
+  return false;
+}
+
 export function filterAnnotations(list: Annotation[], query: string): Annotation[] {
   const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (terms.length === 0) return list;

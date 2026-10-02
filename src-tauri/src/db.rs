@@ -181,18 +181,26 @@ fn migrate(conn: &Connection, path: &Path) -> Result<(), String> {
     let version: usize = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .map_err(|e| e.to_string())?;
-    if version >= MIGRATIONS.len() {
+    if version > MIGRATIONS.len() {
+        return Err(format!(
+            "this library was created by a newer version of Readi (schema {version}; this version knows {}). Install the newer version to open it",
+            MIGRATIONS.len()
+        ));
+    }
+    if version == MIGRATIONS.len() {
         return Ok(());
     }
+    let backup = path.with_extension(format!("v{version}.bak"));
     if version > 0 {
-        let backup = path.with_extension(format!("v{version}.bak"));
         conn.execute("VACUUM INTO ?1", [backup.to_string_lossy()])
             .map_err(|e| format!("backup before migration failed: {e}"))?;
     }
     for (i, sql) in MIGRATIONS.iter().enumerate().skip(version) {
         let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
-        tx.execute_batch(sql)
-            .map_err(|e| format!("migration {} failed: {e}", i + 1))?;
+        tx.execute_batch(sql).map_err(|e| {
+            let saved = if version > 0 { format!(". A copy from before the upgrade is at {}", backup.display()) } else { String::new() };
+            format!("upgrading the library failed at step {}: {e}{saved}", i + 1)
+        })?;
         tx.pragma_update(None, "user_version", i + 1)
             .map_err(|e| e.to_string())?;
         tx.commit().map_err(|e| e.to_string())?;
@@ -1033,6 +1041,19 @@ mod tests {
         let conn = Connection::open(&path).unwrap();
         let n: i64 = conn.query_row("SELECT count(*) FROM sqlite_master WHERE name='books'", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn newer_schema_is_refused_and_left_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.sqlite");
+        drop(open(&path).unwrap());
+        let future = MIGRATIONS.len() + 1;
+        Connection::open(&path).unwrap().pragma_update(None, "user_version", future).unwrap();
+        let err = open(&path).unwrap_err();
+        assert!(err.contains("newer version of Readi"), "{err}");
+        let v: usize = Connection::open(&path).unwrap().query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(v, future);
     }
 
     #[test]
