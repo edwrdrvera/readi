@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Annotation, BookSearch } from "./api";
-import { applyAnchorStates, byReadingOrder, filterAnnotations, libraryStatusLines, searchStatus } from "./annotations";
+import { applyAnchorStates, byReadingOrder, filterAnnotations, libraryStatusLines, sameSpot, searchStatus } from "./annotations";
 
 const ann = (id: number, sort_key: number, quote: string | null, note: string | null, anchor_state: Annotation["anchor_state"] = "resolved"): Annotation => ({
   id,
@@ -62,5 +62,26 @@ describe("search status", () => {
       "1 book with no searchable text",
     ]);
     expect(libraryStatusLines({ indexing: 0, no_text: 0, failed: 0 })).toEqual([]);
+  });
+});
+
+describe("sameSpot", () => {
+  const pdf = (page_index: number, y: number) => ({ anchor: { type: "position" as const, locator: { format: "pdf" as const, v: 1 as const, page_index, x: 0, y } }, sort_key: page_index + y / 1000 });
+  const epub = (section_index: number, f: number) => ({ anchor: { type: "position" as const, locator: { format: "epub" as const, v: 1 as const, cfi: `/6/${section_index}!/4/${f}`, section_index, section_fraction: f } }, sort_key: section_index + f });
+
+  it("treats any scroll position on the same PDF page as the same spot", () => {
+    expect(sameSpot(pdf(6, 792), pdf(6, 400))).toBe(true);
+    expect(sameSpot(pdf(6, 792), pdf(7, 792))).toBe(false);
+  });
+
+  it("matches EPUB positions within 1% of the same section only", () => {
+    expect(sameSpot(epub(2, 0.5), epub(2, 0.505))).toBe(true);
+    expect(sameSpot(epub(2, 0.5), epub(2, 0.53))).toBe(false);
+    expect(sameSpot(epub(2, 0.999), epub(3, 0.0))).toBe(false);
+  });
+
+  it("never matches a highlight", () => {
+    const h = { anchor: { type: "pdf_quads" as const, v: 1 as const, page_index: 6, quads: [] }, sort_key: 6 };
+    expect(sameSpot(h, pdf(6, 0))).toBe(false);
   });
 });
