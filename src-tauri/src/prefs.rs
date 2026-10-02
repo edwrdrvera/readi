@@ -45,6 +45,23 @@ pub enum PdfEffect {
     Invert,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PageWidth {
+    Narrow,
+    #[default]
+    Medium,
+    Wide,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TextAlign {
+    #[default]
+    Left,
+    Justify,
+}
+
 macro_rules! bounded {
     ($name:ident, $min:expr, $max:expr) => {
         #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -99,6 +116,11 @@ pub struct Prefs {
     pub line_height: LineHeight,
     pub pdf_zoom: PdfZoom,
     pub pdf_effect: PdfEffect,
+    /// Added after v1 defaults were stored; absent keys take the default.
+    #[serde(default)]
+    pub page_width: PageWidth,
+    #[serde(default)]
+    pub text_align: TextAlign,
 }
 
 impl Default for Prefs {
@@ -109,9 +131,11 @@ impl Default for Prefs {
             theme: ThemePref::System,
             font_family: FontFamily::Publisher,
             font_size: FontSize(18.0),
-            line_height: LineHeight(1.5),
+            line_height: LineHeight(1.6),
             pdf_zoom: PdfZoom::Fit(PdfFit::FitPage),
             pdf_effect: PdfEffect::None,
+            page_width: PageWidth::Medium,
+            text_align: TextAlign::Left,
         }
     }
 }
@@ -135,6 +159,10 @@ pub struct Overrides {
     pub pdf_zoom: Option<PdfZoom>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pdf_effect: Option<PdfEffect>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_width: Option<PageWidth>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text_align: Option<TextAlign>,
 }
 
 /// Also the `book_preferences` column name.
@@ -149,10 +177,12 @@ pub enum PrefKey {
     LineHeight,
     PdfZoom,
     PdfEffect,
+    PageWidth,
+    TextAlign,
 }
 
 impl PrefKey {
-    const ALL: [PrefKey; 8] = [
+    const ALL: [PrefKey; 10] = [
         Self::ReadingMode,
         Self::Spread,
         Self::Theme,
@@ -161,6 +191,8 @@ impl PrefKey {
         Self::LineHeight,
         Self::PdfZoom,
         Self::PdfEffect,
+        Self::PageWidth,
+        Self::TextAlign,
     ];
 
     fn column(self) -> &'static str {
@@ -173,6 +205,8 @@ impl PrefKey {
             Self::LineHeight => "line_height",
             Self::PdfZoom => "pdf_zoom",
             Self::PdfEffect => "pdf_effect",
+            Self::PageWidth => "page_width",
+            Self::TextAlign => "text_align",
         }
     }
 }
@@ -308,7 +342,8 @@ mod tests {
         assert_eq!(get_defaults(&conn).unwrap(), Prefs::default());
         let prefs: Prefs = serde_json::from_value(json!({
             "reading_mode": "vertical", "spread": "double", "theme": "sepia", "font_family": "serif",
-            "font_size": 22, "line_height": 1.7, "pdf_zoom": 1.44, "pdf_effect": "invert"
+            "font_size": 22, "line_height": 1.7, "pdf_zoom": 1.44, "pdf_effect": "invert",
+            "page_width": "wide", "text_align": "justify"
         }))
         .unwrap();
         set_defaults(&conn, &prefs).unwrap();
@@ -323,8 +358,15 @@ mod tests {
         set_book_pref(&conn, id, PrefKey::Theme, json!("dark")).unwrap();
         set_book_pref(&conn, id, PrefKey::PdfZoom, json!("fit-width")).unwrap();
         set_book_pref(&conn, id, PrefKey::FontSize, json!(24)).unwrap();
+        set_book_pref(&conn, id, PrefKey::PageWidth, json!("narrow")).unwrap();
+        set_book_pref(&conn, id, PrefKey::TextAlign, json!("justify")).unwrap();
         let o = get_overrides(&conn, id).unwrap();
-        assert_eq!(serde_json::to_value(&o).unwrap(), json!({ "theme": "dark", "font_size": 24.0, "pdf_zoom": "fit-width" }));
+        assert_eq!(
+            serde_json::to_value(&o).unwrap(),
+            json!({ "theme": "dark", "font_size": 24.0, "pdf_zoom": "fit-width", "page_width": "narrow", "text_align": "justify" })
+        );
+        set_book_pref(&conn, id, PrefKey::PageWidth, Value::Null).unwrap();
+        set_book_pref(&conn, id, PrefKey::TextAlign, Value::Null).unwrap();
         set_book_pref(&conn, id, PrefKey::PdfZoom, json!(2.5)).unwrap();
         assert_eq!(get_overrides(&conn, id).unwrap().pdf_zoom, Some(PdfZoom::Scale(PdfScale(2.5))));
         set_book_pref(&conn, id, PrefKey::Theme, Value::Null).unwrap();
@@ -357,6 +399,9 @@ mod tests {
             (PrefKey::PdfZoom, json!("fit-height")),
             (PrefKey::Theme, json!("neon")),
             (PrefKey::ReadingMode, json!(1)),
+            (PrefKey::PageWidth, json!("huge")),
+            (PrefKey::PageWidth, json!(620)),
+            (PrefKey::TextAlign, json!("right")),
         ] {
             assert!(set_book_pref(&conn, id, key, value.clone()).is_err(), "{key:?} = {value}");
         }
@@ -365,6 +410,19 @@ mod tests {
         let bad = json!({ "reading_mode": "vertical", "spread": "single", "theme": "system", "font_family": "sans",
             "font_size": 50, "line_height": 1.5, "pdf_zoom": "fit-page", "pdf_effect": "none" });
         assert!(serde_json::from_value::<Prefs>(bad).is_err());
+    }
+
+    #[test]
+    fn v1_defaults_without_new_keys_still_load() {
+        let (_d, conn, _) = fresh();
+        let v1 = json!({ "v": 1, "reading_mode": "vertical", "spread": "double", "theme": "sepia", "font_family": "serif",
+            "font_size": 22, "line_height": 1.7, "pdf_zoom": "fit-width", "pdf_effect": "sepia" });
+        conn.execute("INSERT INTO app_settings (key, value) VALUES ('reading_defaults', ?1)", [v1.to_string()]).unwrap();
+        let got = get_defaults(&conn).unwrap();
+        assert_eq!(got.theme, ThemePref::Sepia);
+        assert_eq!(got.font_size, FontSize(22.0));
+        assert_eq!(got.page_width, PageWidth::Medium);
+        assert_eq!(got.text_align, TextAlign::Left);
     }
 
     #[test]

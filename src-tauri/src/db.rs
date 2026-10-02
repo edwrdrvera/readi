@@ -136,6 +136,26 @@ CREATE TABLE import_jobs (
   started_at INTEGER,
   finished_at INTEGER
 );
+"#, r#"
+CREATE TABLE watched_exclusions_new (
+  folder_path TEXT NOT NULL,
+  sha256 TEXT NOT NULL,
+  title TEXT NOT NULL DEFAULT '',
+  excluded_at INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (folder_path, sha256)
+);
+INSERT INTO watched_exclusions_new (folder_path, sha256, title, excluded_at)
+  SELECT f.path, e.sha256, e.title, e.excluded_at FROM watched_exclusions e JOIN watched_folders f ON f.id = e.watched_folder_id;
+DROP TABLE watched_exclusions;
+ALTER TABLE watched_exclusions_new RENAME TO watched_exclusions;
+"#, r#"
+ALTER TABLE text_segments ADD COLUMN mapping TEXT;
+ALTER TABLE annotations ADD COLUMN sort_key REAL NOT NULL DEFAULT 0;
+ALTER TABLE annotations ADD COLUMN anchor_state TEXT NOT NULL DEFAULT 'unknown' CHECK (anchor_state IN ('unknown','resolved','unresolved'));
+CREATE INDEX annotations_book ON annotations(book_id, sort_key);
+"#, r#"
+ALTER TABLE book_preferences ADD COLUMN page_width TEXT;
+ALTER TABLE book_preferences ADD COLUMN text_align TEXT;
 "#];
 
 pub fn now() -> i64 {
@@ -161,18 +181,26 @@ fn migrate(conn: &Connection, path: &Path) -> Result<(), String> {
     let version: usize = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .map_err(|e| e.to_string())?;
-    if version >= MIGRATIONS.len() {
+    if version > MIGRATIONS.len() {
+        return Err(format!(
+            "this library was created by a newer version of Readi (schema {version}; this version knows {}). Install the newer version to open it",
+            MIGRATIONS.len()
+        ));
+    }
+    if version == MIGRATIONS.len() {
         return Ok(());
     }
+    let backup = path.with_extension(format!("v{version}.bak"));
     if version > 0 {
-        let backup = path.with_extension(format!("v{version}.bak"));
         conn.execute("VACUUM INTO ?1", [backup.to_string_lossy()])
             .map_err(|e| format!("backup before migration failed: {e}"))?;
     }
     for (i, sql) in MIGRATIONS.iter().enumerate().skip(version) {
         let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
-        tx.execute_batch(sql)
-            .map_err(|e| format!("migration {} failed: {e}", i + 1))?;
+        tx.execute_batch(sql).map_err(|e| {
+            let saved = if version > 0 { format!(". A copy from before the upgrade is at {}", backup.display()) } else { String::new() };
+            format!("upgrading the library failed at step {}: {e}{saved}", i + 1)
+        })?;
         tx.pragma_update(None, "user_version", i + 1)
             .map_err(|e| e.to_string())?;
         tx.commit().map_err(|e| e.to_string())?;
@@ -198,6 +226,7 @@ fn summary_from_row(r: &rusqlite::Row) -> rusqlite::Result<BookSummary> {
         opened_at: r.get("opened_at")?,
         available: r.get::<_, i64>("available")? != 0,
         has_cover: r.get::<_, String>("cover_state")? == "ready",
+        percent: r.get("progress_percent")?,
         collection_ids: r
             .get::<_, Option<String>>("collection_ids")?
             .map(|s| s.split(',').filter_map(|x| x.parse().ok()).collect())
@@ -205,14 +234,14 @@ fn summary_from_row(r: &rusqlite::Row) -> rusqlite::Result<BookSummary> {
     })
 }
 
-const SUMMARY_SELECT: &str = "SELECT b.*, j.state AS index_state,
+const SUMMARY_SELECT: &str = "SELECT b.*, j.state AS index_state, p.percent AS progress_percent,
   EXISTS (SELECT 1 FROM book_locations l WHERE l.book_id = b.id AND l.availability = 'available') AS available,
   (SELECT group_concat(id) FROM (
      SELECT cb.collection_id AS id FROM collection_books cb WHERE cb.book_id = b.id
      UNION
      SELECT c.id FROM collections c JOIN book_locations l ON l.watched_folder_id = c.watched_folder_id
      WHERE c.kind = 'derived' AND l.book_id = b.id)) AS collection_ids
-  FROM books b LEFT JOIN extraction_jobs j ON j.book_id = b.id";
+  FROM books b LEFT JOIN extraction_jobs j ON j.book_id = b.id LEFT JOIN progress p ON p.book_id = b.id";
 
 pub fn list_books(conn: &Connection) -> Result<Vec<BookSummary>, String> {
     let mut stmt = conn
@@ -363,8 +392,9 @@ pub fn delete_unavailable_watched(tx: &Connection, id: i64, keep: i64) -> Result
 /// deletes the book; cascades remove its locations and reading data.
 pub fn delete_book_with_exclusions(tx: &Connection, id: i64) -> Result<(), String> {
     tx.execute(
-        "INSERT INTO watched_exclusions (watched_folder_id, sha256, title, excluded_at)
-         SELECT DISTINCT l.watched_folder_id, b.sha256, b.title, ?2 FROM book_locations l JOIN books b ON b.id = l.book_id
+        "INSERT INTO watched_exclusions (folder_path, sha256, title, excluded_at)
+         SELECT DISTINCT f.path, b.sha256, b.title, ?2 FROM book_locations l JOIN books b ON b.id = l.book_id
+         JOIN watched_folders f ON f.id = l.watched_folder_id
          WHERE l.book_id = ?1 AND l.kind = 'watched' AND l.watched_folder_id IS NOT NULL
          ON CONFLICT DO NOTHING",
         params![id, now()],
@@ -670,6 +700,26 @@ pub fn claim_job(conn: &Connection, reclaim_stale: bool) -> Result<Option<i64>, 
     Ok(id)
 }
 
+/// Mapped text keeps its offsets, so it is validated rather than cleaned:
+/// control characters become spaces one for one and whitespace is kept.
+fn mapped_text(s: &TextSegment, mapping: &TextMapping) -> (String, Option<String>) {
+    let mut end = s.text.len().min(MAX_SEGMENT_BYTES);
+    while !s.text.is_char_boundary(end) {
+        end -= 1;
+    }
+    let text: String = s.text[..end].chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+    let len = text.encode_utf16().count() as u64;
+    let mut next = 0u64;
+    let valid = mapping.v == TEXT_MAP_VERSION
+        && mapping.units.iter().all(|&[start, _, n]| {
+            let (start, n) = (start as u64, n as u64);
+            let ok = start >= next && n > 0 && start + n <= len;
+            next = start + n;
+            ok
+        });
+    (text, valid.then(|| serde_json::to_string(mapping).unwrap()))
+}
+
 /// Replaces a book's text index atomically.
 pub fn replace_text(
     conn: &Connection,
@@ -685,25 +735,71 @@ pub fn replace_text(
         .map_err(|e| e.to_string())?;
     let mut any = false;
     for s in segments {
-        let text = clean_text(&s.text, MAX_SEGMENT_BYTES);
-        if text.is_empty() {
+        let (text, mapping) = match &s.mapping {
+            Some(m) => mapped_text(s, m),
+            None => (clean_text(&s.text, MAX_SEGMENT_BYTES), None),
+        };
+        if text.trim().is_empty() {
             continue;
         }
         any = true;
         tx.execute(
-            "INSERT INTO text_segments (book_id, seg_order, label, text, extractor_version) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![id, s.order, s.label.as_deref().map(|l| clean_text(l, 512)), text, extractor_version],
+            "INSERT INTO text_segments (book_id, seg_order, label, text, extractor_version, mapping) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![id, s.order, s.label.as_deref().map(|l| clean_text(l, 512)), text, extractor_version, mapping],
         )
         .map_err(|e| e.to_string())?;
     }
     let state = if any { IndexState::Ready } else { IndexState::NoSearchableText };
-    tx.execute(
-        "UPDATE extraction_jobs SET state = ?2, extractor_version = ?3, error = NULL, updated_at = ?4 WHERE book_id = ?1",
-        params![id, state.as_str(), extractor_version, now()],
-    )
-    .map_err(|e| e.to_string())?;
+    let updated = tx
+        .execute(
+            "UPDATE extraction_jobs SET state = ?2, extractor_version = ?3, error = NULL, updated_at = ?4 WHERE book_id = ?1",
+            params![id, state.as_str(), extractor_version, now()],
+        )
+        .map_err(|e| e.to_string())?;
+    if updated == 0 {
+        return Err("Book not found".into());
+    }
     tx.commit().map_err(|e| e.to_string())?;
     Ok(state)
+}
+
+/// Queues a rebuild for indexes built before extractors produced mappings.
+/// Old segments stay searchable until the rebuild replaces them.
+pub fn requeue_unmapped(conn: &Connection) -> Result<usize, String> {
+    conn.execute(
+        "UPDATE extraction_jobs SET state = 'queued', updated_at = ?2
+         WHERE state IN ('ready','no_searchable_text') AND COALESCE(extractor_version, 0) < ?1",
+        params![MIN_MAPPED_EXTRACTOR_VERSION, now()],
+    )
+    .map_err(|e| e.to_string())
+}
+
+fn set_job_queued(conn: &Connection, id: i64, only_failed: bool) -> Result<(), String> {
+    let exists: bool = conn
+        .query_row("SELECT EXISTS (SELECT 1 FROM books WHERE id = ?1)", [id], |r| r.get(0))
+        .map_err(|e| e.to_string())?;
+    if !exists {
+        return Err("Book not found".into());
+    }
+    let guard = if only_failed { "WHERE extraction_jobs.state = 'failed'" } else { "" };
+    conn.execute(
+        &format!(
+            "INSERT INTO extraction_jobs (book_id, state, updated_at) VALUES (?1, 'queued', ?2)
+             ON CONFLICT(book_id) DO UPDATE SET state = 'queued', error = NULL, updated_at = excluded.updated_at {guard}"
+        ),
+        params![id, now()],
+    )
+    .map(|_| ())
+    .map_err(|e| e.to_string())
+}
+
+/// Requeues a failed extraction; any other state is left as it is.
+pub fn retry_job(conn: &Connection, id: i64) -> Result<(), String> {
+    set_job_queued(conn, id, true)
+}
+
+pub fn reindex_book(conn: &Connection, id: i64) -> Result<(), String> {
+    set_job_queued(conn, id, false)
 }
 
 pub fn fail_job(conn: &Connection, id: i64, error: &str) -> Result<(), String> {
@@ -743,6 +839,35 @@ mod tests {
     }
 
     #[test]
+    fn v3_exclusions_migrate_to_folder_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.sqlite");
+        {
+            let conn = Connection::open(&path).unwrap();
+            for (i, sql) in MIGRATIONS[..3].iter().enumerate() {
+                conn.execute_batch(sql).unwrap();
+                conn.pragma_update(None, "user_version", i + 1).unwrap();
+            }
+            conn.execute("INSERT INTO watched_folders (id, path) VALUES (7, '/w/a')", []).unwrap();
+            conn.execute(
+                "INSERT INTO watched_exclusions (watched_folder_id, sha256, title, excluded_at) VALUES (7, 'abc', 'Book', 42)",
+                [],
+            )
+            .unwrap();
+        }
+        let conn = open(&path).unwrap();
+        let row: (String, String, String, i64) = conn
+            .query_row("SELECT folder_path, sha256, title, excluded_at FROM watched_exclusions", [], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+            })
+            .unwrap();
+        assert_eq!(row, ("/w/a".into(), "abc".into(), "Book".into(), 42));
+        conn.execute("DELETE FROM watched_folders WHERE id = 7", []).unwrap();
+        let n: i64 = conn.query_row("SELECT count(*) FROM watched_exclusions", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 1);
+    }
+
+    #[test]
     fn progress_survives_reopen() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("t.sqlite");
@@ -750,9 +875,12 @@ mod tests {
         {
             let conn = open(&path).unwrap();
             let id = insert_managed_book(&conn, "abc", Format::Pdf, "t", 10, "abc.pdf").unwrap();
+            assert_eq!(get_book(&conn, id).unwrap().unwrap().percent, None);
             save_progress(&conn, id, &loc, 0.5).unwrap();
         }
         let conn = open(&path).unwrap();
+        assert_eq!(get_book(&conn, 1).unwrap().unwrap().percent, Some(0.5));
+        assert_eq!(list_books(&conn).unwrap()[0].percent, Some(0.5));
         let p = get_progress(&conn, 1).unwrap().unwrap();
         assert_eq!(p.locator, loc);
         assert_eq!(get_book(&conn, 1).unwrap().unwrap().reading_state, "reading");
@@ -790,12 +918,104 @@ mod tests {
         let (_d, conn) = fresh();
         let id = insert_managed_book(&conn, "abc", Format::Epub, "file", 10, "abc.epub").unwrap();
         assert_eq!(claim_job(&conn, false).unwrap(), Some(id));
-        let seg = |t: &str| TextSegment { order: 0, label: None, text: t.into() };
+        let seg = |t: &str| TextSegment { order: 0, label: None, text: t.into(), mapping: None };
         replace_text(&conn, id, 1, &[seg("alpha bravo")]).unwrap();
         replace_text(&conn, id, 2, &[seg("charlie")]).unwrap();
         assert_eq!(search_count(&conn, id, "alpha").unwrap(), 0);
         assert_eq!(search_count(&conn, id, "charlie").unwrap(), 1);
         assert_eq!(replace_text(&conn, id, 3, &[seg("  ")]).unwrap(), IndexState::NoSearchableText);
+    }
+
+    fn mapped(order: u32, text: &str, units: Vec<[u32; 3]>) -> TextSegment {
+        TextSegment { order, label: None, text: text.into(), mapping: Some(TextMapping { v: TEXT_MAP_VERSION, units }) }
+    }
+
+    fn stored(conn: &Connection, id: i64) -> Vec<(String, Option<String>)> {
+        let mut stmt = conn.prepare("SELECT text, mapping FROM text_segments WHERE book_id = ?1 ORDER BY seg_order").unwrap();
+        stmt.query_map([id], |r| Ok((r.get(0)?, r.get(1)?))).unwrap().map(|r| r.unwrap()).collect()
+    }
+
+    #[test]
+    fn mapped_text_keeps_offsets_and_drops_invalid_mappings() {
+        let (_d, conn) = fresh();
+        let id = insert_managed_book(&conn, "abc", Format::Epub, "file", 10, "abc.epub").unwrap();
+        let segs = [
+            mapped(0, "a\u{1}b  c", vec![[0, 0, 3], [5, 1, 1]]),
+            mapped(1, "é😀x", vec![[0, 0, 4]]),
+            mapped(2, "abcd", vec![[0, 0, 5]]),
+            mapped(3, "abcd", vec![[2, 0, 2], [0, 1, 2]]),
+            mapped(4, "abcd", vec![[0, 0, 3], [2, 1, 2]]),
+            TextSegment { mapping: Some(TextMapping { v: 99, units: vec![[0, 0, 4]] }), ..mapped(5, "abcd", vec![]) },
+        ];
+        replace_text(&conn, id, 2, &segs).unwrap();
+        let rows = stored(&conn, id);
+        assert_eq!(rows[0].0, "a b  c", "control char replaced one for one, whitespace kept");
+        assert!(rows[0].1.is_some());
+        assert!(rows[1].1.is_some(), "emoji counts as two UTF-16 units");
+        assert!(rows[2..].iter().all(|r| r.1.is_none()), "out of range, unsorted, overlapping, wrong version");
+        assert_eq!(rows.len(), 6, "segments with invalid mappings are kept");
+    }
+
+    #[test]
+    fn failed_replace_keeps_the_old_index() {
+        let (_d, conn) = fresh();
+        let id = insert_managed_book(&conn, "abc", Format::Epub, "file", 10, "abc.epub").unwrap();
+        let seg = |o: u32, t: &str| TextSegment { order: o, label: None, text: t.into(), mapping: None };
+        replace_text(&conn, id, 2, &[seg(0, "alpha")]).unwrap();
+        conn.execute_batch(
+            "CREATE TEMP TRIGGER boom BEFORE INSERT ON text_segments WHEN new.text = 'boom' BEGIN SELECT RAISE(ABORT, 'boom'); END;",
+        )
+        .unwrap();
+        assert!(replace_text(&conn, id, 3, &[seg(0, "bravo"), seg(1, "boom")]).is_err());
+        assert_eq!(search_count(&conn, id, "alpha").unwrap(), 1);
+        assert_eq!(search_count(&conn, id, "bravo").unwrap(), 0);
+        assert_eq!(get_book(&conn, id).unwrap().unwrap().index_state, IndexState::Ready);
+    }
+
+    #[test]
+    fn old_extractor_indexes_are_requeued_without_touching_reading_data() {
+        let (_d, conn) = fresh();
+        let seg = TextSegment { order: 0, label: None, text: "alpha".into(), mapping: None };
+        let old = insert_managed_book(&conn, "a", Format::Pdf, "t", 10, "a.pdf").unwrap();
+        let new = insert_managed_book(&conn, "b", Format::Pdf, "t", 10, "b.pdf").unwrap();
+        let failed = insert_managed_book(&conn, "c", Format::Pdf, "t", 10, "c.pdf").unwrap();
+        replace_text(&conn, old, 1, &[seg.clone()]).unwrap();
+        replace_text(&conn, new, MIN_MAPPED_EXTRACTOR_VERSION, &[seg]).unwrap();
+        fail_job(&conn, failed, "bad").unwrap();
+        let loc = Locator::Pdf { v: 1, page_index: 3, x: 1.0, y: 2.0 };
+        save_progress(&conn, old, &loc, 0.3).unwrap();
+        conn.execute("INSERT INTO annotations (book_id, kind, locator, created_at, updated_at) VALUES (?1, 'bookmark', '{}', 1, 1)", [old])
+            .unwrap();
+
+        assert_eq!(requeue_unmapped(&conn).unwrap(), 1);
+        let state = |id| get_book(&conn, id).unwrap().unwrap().index_state;
+        assert_eq!(state(old), IndexState::Queued);
+        assert_eq!(state(new), IndexState::Ready);
+        assert_eq!(state(failed), IndexState::Failed);
+        assert_eq!(search_count(&conn, old, "alpha").unwrap(), 1, "old text stays searchable until rebuilt");
+        assert_eq!(get_progress(&conn, old).unwrap().unwrap().locator, loc);
+        let n: i64 = conn.query_row("SELECT count(*) FROM annotations WHERE book_id = ?1", [old], |r| r.get(0)).unwrap();
+        assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn retry_only_requeues_failed_and_reindex_requeues_any() {
+        let (_d, conn) = fresh();
+        let id = insert_managed_book(&conn, "abc", Format::Epub, "file", 10, "abc.epub").unwrap();
+        let seg = TextSegment { order: 0, label: None, text: "alpha".into(), mapping: None };
+        replace_text(&conn, id, 2, &[seg]).unwrap();
+        retry_job(&conn, id).unwrap();
+        assert_eq!(get_book(&conn, id).unwrap().unwrap().index_state, IndexState::Ready);
+        fail_job(&conn, id, "boom").unwrap();
+        retry_job(&conn, id).unwrap();
+        assert_eq!(get_book(&conn, id).unwrap().unwrap().index_state, IndexState::Queued);
+        let err: Option<String> = conn.query_row("SELECT error FROM extraction_jobs WHERE book_id = ?1", [id], |r| r.get(0)).unwrap();
+        assert_eq!(err, None);
+        claim_job(&conn, false).unwrap();
+        reindex_book(&conn, id).unwrap();
+        assert_eq!(get_book(&conn, id).unwrap().unwrap().index_state, IndexState::Queued);
+        assert!(retry_job(&conn, 99).is_err());
+        assert!(reindex_book(&conn, 99).is_err());
     }
 
     #[test]
@@ -821,6 +1041,19 @@ mod tests {
         let conn = Connection::open(&path).unwrap();
         let n: i64 = conn.query_row("SELECT count(*) FROM sqlite_master WHERE name='books'", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn newer_schema_is_refused_and_left_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.sqlite");
+        drop(open(&path).unwrap());
+        let future = MIGRATIONS.len() + 1;
+        Connection::open(&path).unwrap().pragma_update(None, "user_version", future).unwrap();
+        let err = open(&path).unwrap_err();
+        assert!(err.contains("newer version of Readi"), "{err}");
+        let v: usize = Connection::open(&path).unwrap().query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(v, future);
     }
 
     #[test]
@@ -863,12 +1096,15 @@ mod tests {
         assert_eq!(get_ui_settings(&conn).unwrap(), UiSettings::default());
         let mut s = UiSettings::default();
         s.always_show_controls = true;
+        s.library_layout = LibraryLayout::Shelf;
         s.library.sort = SortKey::Title;
         s.library.author = Some("Le Guin".into());
         set_ui_settings(&conn, &s).unwrap();
         assert_eq!(get_ui_settings(&conn).unwrap(), s);
 
         assert!(serde_json::from_str::<UiSettings>(r#"{"library":{"sort":"title"},"extra":1}"#).is_err());
+        assert!(serde_json::from_str::<UiSettings>(r#"{"library_layout":"stack"}"#).is_err());
+        assert_eq!(serde_json::from_str::<UiSettings>(r#"{"always_show_controls":true}"#).unwrap().library_layout, LibraryLayout::Grid);
         s.library.author = Some("a".repeat(513));
         assert!(set_ui_settings(&conn, &s).is_err());
         conn.execute("UPDATE app_settings SET value = '{bad' WHERE key = 'ui'", []).unwrap();

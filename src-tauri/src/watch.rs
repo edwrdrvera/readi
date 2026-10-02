@@ -127,7 +127,8 @@ pub struct LocRow {
 pub struct DbState {
     pub folders: Vec<WatchedFolder>,
     pub locations: Vec<LocRow>,
-    pub exclusions: HashSet<(i64, String)>,
+    /// (folder path, sha256)
+    pub exclusions: HashSet<(String, String)>,
 }
 
 fn access_str(a: FolderAccess) -> &'static str {
@@ -191,7 +192,7 @@ fn load(conn: &Connection) -> Result<DbState, String> {
         .map_err(err)?
         .collect::<Result<_, _>>()
         .map_err(err)?;
-    let mut stmt = conn.prepare("SELECT watched_folder_id, sha256 FROM watched_exclusions").map_err(err)?;
+    let mut stmt = conn.prepare("SELECT folder_path, sha256 FROM watched_exclusions").map_err(err)?;
     let exclusions = stmt
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
         .map_err(err)?
@@ -279,7 +280,10 @@ pub struct Plan {
 
 pub fn plan(state: &DbState, snap: &Snapshot, hashes: &HashMap<String, Hashed>, now: i64) -> Plan {
     let mut out = Plan::default();
-    let excluded = |folder: i64, sha: &str| state.exclusions.contains(&(folder, sha.to_string()));
+    let folder_paths: HashMap<i64, &str> = state.folders.iter().map(|f| (f.id, f.path.as_str())).collect();
+    let excluded = |folder: i64, sha: &str| {
+        folder_paths.get(&folder).is_some_and(|p| state.exclusions.contains(&(p.to_string(), sha.to_string())))
+    };
 
     for f in &state.folders {
         let access = snap.folders.get(&f.id).copied().unwrap_or(FolderAccess::Unavailable);
@@ -398,7 +402,7 @@ fn title_of(path: &str) -> String {
 
 fn link(tx: &Connection, sha: &str, path: &str, folder_id: i64, size: u64, mtime: i64) -> Result<bool, String> {
     let still_excluded = tx
-        .query_row("SELECT 1 FROM watched_exclusions WHERE watched_folder_id = ?1 AND sha256 = ?2", params![folder_id, sha], |_| Ok(()))
+        .query_row("SELECT 1 FROM watched_exclusions e JOIN watched_folders f ON f.path = e.folder_path WHERE f.id = ?1 AND e.sha256 = ?2", params![folder_id, sha], |_| Ok(()))
         .optional()
         .map_err(err)?
         .is_some();
@@ -552,20 +556,19 @@ pub fn set_collection(conn: &Connection, id: i64, enabled: bool) -> Result<(), S
 pub fn exclusions(conn: &Connection) -> Result<Vec<Exclusion>, String> {
     let mut stmt = conn
         .prepare(
-            "SELECT e.watched_folder_id, f.path, e.sha256, e.title, e.excluded_at
-             FROM watched_exclusions e JOIN watched_folders f ON f.id = e.watched_folder_id ORDER BY e.excluded_at DESC",
+            "SELECT folder_path, sha256, title, excluded_at FROM watched_exclusions ORDER BY excluded_at DESC, folder_path, sha256",
         )
         .map_err(err)?;
     let rows = stmt
         .query_map([], |r| {
-            Ok(Exclusion { watched_folder_id: r.get(0)?, folder_path: r.get(1)?, sha256: r.get(2)?, title: r.get(3)?, excluded_at: r.get(4)? })
+            Ok(Exclusion { folder_path: r.get(0)?, sha256: r.get(1)?, title: r.get(2)?, excluded_at: r.get(3)? })
         })
         .map_err(err)?;
     rows.collect::<Result<_, _>>().map_err(err)
 }
 
-pub fn delete_exclusion(conn: &Connection, folder_id: i64, sha256: &str) -> Result<(), String> {
-    conn.execute("DELETE FROM watched_exclusions WHERE watched_folder_id = ?1 AND sha256 = ?2", params![folder_id, sha256])
+pub fn delete_exclusion(conn: &Connection, folder_path: &str, sha256: &str) -> Result<(), String> {
+    conn.execute("DELETE FROM watched_exclusions WHERE folder_path = ?1 AND sha256 = ?2", params![folder_path, sha256])
         .map(|_| ())
         .map_err(err)
 }
@@ -695,8 +698,8 @@ pub fn list_exclusions(lib: Lib) -> Result<Vec<Exclusion>, String> {
 }
 
 #[tauri::command]
-pub fn restore_exclusion(lib: Lib, scanner: State<Scanner>, folder_id: i64, sha256: String) -> Result<(), String> {
-    delete_exclusion(&lib.conn.lock().unwrap(), folder_id, &sha256)?;
+pub fn restore_exclusion(lib: Lib, scanner: State<Scanner>, folder_path: String, sha256: String) -> Result<(), String> {
+    delete_exclusion(&lib.conn.lock().unwrap(), &folder_path, &sha256)?;
     scanner.rescan();
     Ok(())
 }
@@ -918,7 +921,7 @@ mod tests {
     #[test]
     fn exclusion_suppresses_readding_until_restored() {
         let e = env();
-        let (id, a) = e.folder("a");
+        let (_, a) = e.folder("a");
         write_old(&a.join("x.pdf"), b"%PDF-x", 60);
         e.scan();
         let (_, book, ..) = e.locs()[0].clone();
@@ -926,8 +929,8 @@ mod tests {
             let conn = e.lib.conn.lock().unwrap();
             let sha: String = conn.query_row("SELECT sha256 FROM books WHERE id = ?1", [book], |r| r.get(0)).unwrap();
             conn.execute(
-                "INSERT INTO watched_exclusions (watched_folder_id, sha256, title, excluded_at) VALUES (?1, ?2, 'x', 1)",
-                params![id, sha],
+                "INSERT INTO watched_exclusions (folder_path, sha256, title, excluded_at) VALUES (?1, ?2, 'x', 1)",
+                params![s(&a), sha],
             )
             .unwrap();
             conn.execute("DELETE FROM books WHERE id = ?1", [book]).unwrap();
@@ -938,9 +941,29 @@ mod tests {
         assert_eq!(e.books(), 0);
         let ex = exclusions(&e.lib.conn.lock().unwrap()).unwrap();
         assert_eq!((ex.len(), ex[0].folder_path.clone()), (1, s(&a)));
-        delete_exclusion(&e.lib.conn.lock().unwrap(), id, &sha).unwrap();
+        delete_exclusion(&e.lib.conn.lock().unwrap(), &s(&a), &sha).unwrap();
         e.scan();
         assert_eq!(e.books(), 1);
+    }
+
+    #[test]
+    fn exclusion_survives_removing_and_readding_the_folder() {
+        let e = env();
+        let (id, a) = e.folder("a");
+        write_old(&a.join("x.pdf"), b"%PDF-x", 60);
+        e.scan();
+        let (_, book, ..) = e.locs()[0].clone();
+        {
+            let conn = e.lib.conn.lock().unwrap();
+            let tx = conn.unchecked_transaction().unwrap();
+            db::delete_book_with_exclusions(&tx, book).unwrap();
+            tx.commit().unwrap();
+        }
+        remove_folder(&e.lib.conn.lock().unwrap(), id).unwrap();
+        e.folder("a");
+        e.scan();
+        assert_eq!(e.books(), 0);
+        assert_eq!(exclusions(&e.lib.conn.lock().unwrap()).unwrap().len(), 1);
     }
 
     #[test]

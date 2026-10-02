@@ -50,20 +50,119 @@
   pointer-events: none;
 }
 
+/* The effect applies to the page image only, so highlight colors stay true. */
 .pdf-host[data-effect="invert"] .pdf-page {
+  background: #000;
+}
+
+.pdf-host[data-effect="invert"] .pdf-page canvas {
   filter: invert(1) hue-rotate(180deg);
 }
 
-.pdf-host.pdf-reader .pdf-page-label {
+.pdf-marks {
   position: absolute;
-  bottom: 8px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 2px 8px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  color: var(--reader-muted, var(--muted, #6e6e73));
-  background: var(--reader-bg, transparent);
+  inset: 0;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
+}
+
+.pdf-hl[data-color="yellow"] {
+  fill: rgb(255 212 0 / 0.4);
+}
+
+.pdf-hl[data-color="green"] {
+  fill: rgb(52 199 89 / 0.35);
+}
+
+.pdf-hl[data-color="blue"] {
+  fill: rgb(10 132 255 / 0.3);
+}
+
+.pdf-hl[data-color="pink"] {
+  fill: rgb(255 55 150 / 0.3);
+}
+
+.pdf-search-mark {
+  fill: rgb(255 149 0 / 0.45);
+  stroke: rgb(255 149 0);
+  stroke-width: 1;
+}
+
+/* The subset of PDF.js's pdf_viewer.css that its TextLayer needs. */
+.pdf-page {
+  --scale-round-x: 1px;
+  --scale-round-y: 1px;
+}
+
+.pdf-page .textLayer {
+  position: absolute;
+  text-align: initial;
+  inset: 0;
+  overflow: clip;
+  line-height: 1;
+  letter-spacing: normal;
+  word-spacing: normal;
+  -webkit-text-size-adjust: none;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  caret-color: transparent;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+
+.pdf-page .textLayer[data-main-rotation="90"] {
+  transform: rotate(90deg) translateY(-100%);
+}
+
+.pdf-page .textLayer[data-main-rotation="180"] {
+  transform: rotate(180deg) translate(-100%, -100%);
+}
+
+.pdf-page .textLayer[data-main-rotation="270"] {
+  transform: rotate(270deg) translateX(-100%);
+}
+
+.pdf-page .textLayer :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.pdf-page .textLayer > :not(.markedContent):not(.endOfContent) {
+  z-index: 1;
+  --font-height: 0;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  --scale-x: 1;
+  --rotate: 0deg;
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+
+.pdf-page .textLayer ::selection {
+  background: rgb(0 100 255 / 0.3);
+  color: transparent;
+}
+
+.pdf-page .textLayer br::selection {
+  background: transparent;
+}
+
+.pdf-page .textLayer .endOfContent {
+  display: block;
+  position: absolute;
+  inset: 100% 0 0;
+  z-index: 0;
+  cursor: default;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.pdf-page .textLayer.selecting .endOfContent {
+  top: 0;
 }

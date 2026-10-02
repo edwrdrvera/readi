@@ -2,13 +2,15 @@ import type { Format } from "./api";
 import { backHistory } from "./history";
 import { pickAndImport } from "./importing";
 import { PDF_SCALE, resolvePrefs, stepFontSize, type PrefKey, type Prefs, type ThemePref } from "./prefs";
-import { useApp } from "./store";
+import { useApp, type SidebarTab } from "./store";
 import { activeReader, type ReaderHandle } from "../reader/handle";
 
 export interface CommandContext {
-  screen: "library" | "reader";
+  screen: "library" | "reader" | "settings";
   format: Format | null;
   bookId: number | null;
+  /** The book that book actions apply to: the open book in the reader, the focused card in the Library. */
+  targetBookId: number | null;
   /** The open book's reader, once it has registered. */
   reader: ReaderHandle | null;
   prefs: Prefs;
@@ -33,8 +35,8 @@ export interface Command {
   shortcuts: Shortcut[];
   /** Plain navigation keys that a focused control (button, radio group) may own. */
   yieldsToControls?: boolean;
-  /** False keeps a command out of the palette. */
-  palette?: boolean;
+  /** False keeps a command out of the actions list; a function decides per context. */
+  palette?: boolean | ((ctx: CommandContext) => boolean);
   when(ctx: CommandContext): boolean;
   run(ctx: CommandContext): void | Promise<void>;
 }
@@ -47,6 +49,7 @@ export function commandContext(): CommandContext {
     screen: s.screen.name,
     format: detail?.book.format ?? null,
     bookId: detail?.book.id ?? null,
+    targetBookId: detail?.book.id ?? (s.screen.name === "library" && s.books.some((b) => b.id === s.focusedBookId) ? s.focusedBookId : null),
     reader: detail && reader?.bookId === detail.book.id ? reader : null,
     prefs: resolvePrefs(s.defaults, s.overrides),
   };
@@ -82,9 +85,61 @@ const readingRegion = () => document.querySelector<HTMLElement>("[data-reading-r
 
 let sidebarOpener: HTMLElement | null = null;
 
-export function openSidebar(opener: Element | null = document.activeElement) {
-  sidebarOpener = opener instanceof HTMLElement ? opener : null;
-  useApp.getState().setSidebar({ open: true });
+export function openSidebar(opener: Element | null = document.activeElement, tab?: SidebarTab) {
+  const s = useApp.getState();
+  // Reopening from inside the sidebar keeps the original opener.
+  if (!s.sidebar.open || !(opener instanceof Element && opener.closest("[data-reader-sidebar]"))) {
+    sidebarOpener = opener instanceof HTMLElement ? opener : null;
+  }
+  s.setSidebar({ open: true, ...(tab ? { tab } : {}) });
+}
+
+export function openBookSearch(opener: Element | null = document.activeElement) {
+  openSidebar(opener, "search");
+  requestAnimationFrame(() => {
+    const input = document.querySelector<HTMLInputElement>('[data-testid="search-input"]');
+    input?.focus();
+    input?.select();
+  });
+}
+
+let searchOpener: HTMLElement | null = null;
+const SEARCH_INPUT = '[data-testid="library-search-input"], [data-testid="command-input"]';
+
+/** Opens the search field: the Library's in the Library, the toolbar's in the reader. */
+export function focusSearch(opener: Element | null = document.activeElement) {
+  if (!(opener instanceof Element && opener.matches(SEARCH_INPUT))) searchOpener = opener instanceof HTMLElement ? opener : null;
+  useApp.getState().setSearch({ open: true });
+  requestAnimationFrame(() => {
+    const input = document.querySelector<HTMLInputElement>(SEARCH_INPUT);
+    input?.focus();
+    input?.select();
+  });
+}
+
+/** Clears the field and restores the grid or the title. */
+export function closeSearch({ restoreFocus }: { restoreFocus: boolean }) {
+  useApp.getState().setSearch({ open: false, query: "" });
+  const target = searchOpener?.isConnected ? searchOpener : readingRegion();
+  searchOpener = null;
+  const input = document.querySelector<HTMLInputElement>(SEARCH_INPUT);
+  if (document.activeElement === input) input?.blur();
+  if (restoreFocus) requestAnimationFrame(() => target?.focus());
+}
+
+/** Escape: the note editor, then the highlight popover. */
+export function dismissForemost(): boolean {
+  const s = useApp.getState();
+  if (s.editingId !== null) {
+    s.setEditing(null);
+    return true;
+  }
+  if (s.selection) {
+    activeReader()?.clearSelection();
+    s.setSelection(null);
+    return true;
+  }
+  return false;
 }
 
 export function closeSidebar() {
@@ -102,28 +157,44 @@ const themeCommand = (theme: ThemePref, n: number | null): Command => ({
   run: (ctx) => setPref(ctx, "theme", theme),
 });
 
-let paletteOpener: HTMLElement | null = null;
-
-export function openPalette(opener: Element | null = document.activeElement) {
-  paletteOpener = opener instanceof HTMLElement ? opener : null;
-  useApp.getState().setPaletteOpen(true);
+/** Esc and the close button hand focus back to the book's card or row. */
+export function closeBookInfo() {
+  const s = useApp.getState();
+  const id = s.infoBookId;
+  s.showBookInfo(null);
+  if (id !== null) requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-book-id="${id}"] button`)?.focus());
 }
 
-/** Focus target when the palette closes. */
-export function takePaletteOpener(): HTMLElement | null {
-  const target = paletteOpener?.isConnected ? paletteOpener : readingRegion();
-  paletteOpener = null;
-  return target;
+let settingsOpener: HTMLElement | null = null;
+
+export function openSettings(opener: Element | null = document.activeElement) {
+  settingsOpener = opener instanceof HTMLElement ? opener : null;
+  useApp.getState().openSettings();
+  requestAnimationFrame(() => document.getElementById("settings-title")?.focus());
+}
+
+export function closeSettings() {
+  useApp.getState().closeSettings();
+  const target = settingsOpener?.isConnected ? settingsOpener : readingRegion();
+  settingsOpener = null;
+  requestAnimationFrame(() => target?.focus());
 }
 
 export const commands: Command[] = [
   {
     id: "palette.open",
-    label: "Command Palette",
+    label: "Search and Actions",
     shortcuts: [{ key: "k", meta: true }],
     palette: false,
+    when: (ctx) => ctx.screen !== "settings",
+    run: () => focusSearch(),
+  },
+  {
+    id: "settings.toggle",
+    label: "Settings",
+    shortcuts: [{ key: ",", meta: true }],
     when: () => true,
-    run: () => openPalette(),
+    run: (ctx) => (ctx.screen === "settings" ? closeSettings() : openSettings()),
   },
   { id: "library.import", label: "Import…", shortcuts: [{ key: "o", meta: true, viaMenu: true }], when: () => true, run: () => pickAndImport() },
   {
@@ -132,6 +203,33 @@ export const commands: Command[] = [
     shortcuts: [],
     when: (ctx) => ctx.screen === "reader",
     run: () => useApp.getState().closeBook(),
+  },
+  {
+    id: "search.book",
+    label: "Find in Book",
+    shortcuts: [{ key: "f", meta: true }],
+    palette: (ctx) => ctx.screen === "reader",
+    when: (ctx) => ctx.screen !== "settings",
+    run: (ctx) => (ctx.screen === "reader" ? openBookSearch() : focusSearch()),
+  },
+  {
+    id: "search.library",
+    label: "Search Library",
+    shortcuts: [{ key: "f", meta: true, shift: true }],
+    when: () => true,
+    run: async (ctx) => {
+      const s = useApp.getState();
+      if (ctx.screen === "reader") await s.closeBook();
+      if (ctx.screen === "settings") await s.showLibrary();
+      focusSearch();
+    },
+  },
+  {
+    id: "bookmark.add",
+    label: "Add Bookmark",
+    shortcuts: [{ key: "d", meta: true }],
+    when: inReader,
+    run: () => useApp.getState().addBookmark(),
   },
   {
     id: "sidebar.toggle",
@@ -183,9 +281,16 @@ export const commands: Command[] = [
     label: "Dismiss",
     palette: false,
     shortcuts: [{ key: "Escape" }],
-    // Popovers and sheets dismiss themselves and mark the event handled.
-    when: (ctx) => ctx.screen === "reader" && useApp.getState().sidebar.open && !useApp.getState().sidebar.pinned,
-    run: () => closeSidebar(),
+    // Popovers and menus dismiss themselves and mark the event handled.
+    when: (ctx) => {
+      const s = useApp.getState();
+      if (ctx.screen === "settings" || s.infoBookId !== null) return true;
+      return ctx.screen === "reader" && (s.editingId !== null || s.selection !== null);
+    },
+    run: (ctx) => {
+      if (ctx.screen === "settings") return closeSettings();
+      if (!dismissForemost() && useApp.getState().infoBookId !== null) closeBookInfo();
+    },
   },
 ];
 
@@ -209,17 +314,18 @@ export function paletteCommands(ctx: CommandContext): Command[] {
   const s = useApp.getState();
   const out: Command[] = [];
   const manual = s.collections.filter((c) => c.kind === "manual");
-  if (ctx.bookId !== null) {
-    const id = ctx.bookId;
+  if (ctx.targetBookId !== null) {
+    const id = ctx.targetBookId;
     const book = s.books.find((b) => b.id === id) ?? (s.screen.name === "reader" ? s.screen.detail.book : null);
-    if (book?.reading_state !== "finished") out.push(dynamic("book.finished", "Mark as Finished", () => s.setReadingState(id, "finished")));
-    if (book?.reading_state !== "unread") out.push(dynamic("book.unread", "Mark as Unread", () => s.setReadingState(id, "unread")));
+    const label = (action: string) => (ctx.screen === "library" && book ? `${action}: ${book.title}` : action);
+    if (book?.reading_state !== "finished") out.push(dynamic("book.finished", label("Mark as Finished"), () => s.setReadingState(id, "finished")));
+    if (book?.reading_state !== "unread") out.push(dynamic("book.unread", label("Mark as Unread"), () => s.setReadingState(id, "unread")));
     for (const c of manual) {
       const member = book?.collection_ids.includes(c.id) ?? false;
       out.push(
         member
-          ? dynamic(`collection.remove.${c.id}`, `Remove from ${c.name}`, () => s.setMembership(c.id, [id], false))
-          : dynamic(`collection.add.${c.id}`, `Add to ${c.name}`, () => s.setMembership(c.id, [id], true)),
+          ? dynamic(`collection.remove.${c.id}`, label(`Remove from ${c.name}`), () => s.setMembership(c.id, [id], false))
+          : dynamic(`collection.add.${c.id}`, label(`Add to ${c.name}`), () => s.setMembership(c.id, [id], true)),
       );
     }
   }
@@ -231,22 +337,30 @@ export function paletteCommands(ctx: CommandContext): Command[] {
     }
   }
   out.push(
-    dynamic("collection.new", "New Collection…", () =>
-      s.setCollectionEditor({ mode: "create", addBookIds: ctx.bookId === null ? [] : [ctx.bookId] }),
-    ),
+    dynamic("collection.new", "New Collection", async () => {
+      // The new row appears in the Library sidebar.
+      if (ctx.screen === "reader") await s.closeBook();
+      s.setCollectionEditor({ mode: "create", addBookIds: ctx.bookId === null ? [] : [ctx.bookId] });
+    }),
   );
   return out;
 }
 
-/** Everything the palette lists right now: registry commands that apply, then contextual ones. */
+const listed = (c: Command, ctx: CommandContext) => (typeof c.palette === "function" ? c.palette(ctx) : c.palette !== false);
+
+/** Every action that applies right now: registry commands, then contextual ones. */
 export function paletteItems(ctx: CommandContext = commandContext()): Command[] {
-  return [...commands.filter((c) => c.palette !== false && c.when(ctx)), ...paletteCommands(ctx)];
+  return [...commands.filter((c) => listed(c, ctx) && c.when(ctx)), ...paletteCommands(ctx)];
 }
 
-/** Closes the palette, then runs the chosen command once. */
+/** Actions whose label contains every word of the query. */
+export function matchCommands(query: string, ctx: CommandContext = commandContext()): Command[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  return paletteItems(ctx).filter((c) => words.every((w) => c.label.toLowerCase().includes(w)));
+}
+
 export function runFromPalette(command: Command) {
   const ctx = commandContext();
-  useApp.getState().setPaletteOpen(false);
   if (command.when(ctx)) execute(command, ctx);
 }
 

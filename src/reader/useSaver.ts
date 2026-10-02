@@ -6,7 +6,11 @@ import { useApp } from "../lib/store";
 /** One saver per open book, flushed on blur, hide, unmount, and window close. */
 export function useSaver(bookId: number) {
   const setSaveStatus = useApp((s) => s.setSaveStatus);
-  const saver = useMemo(() => new ProgressSaver(bookId, setSaveStatus), [bookId, setSaveStatus]);
+  const setProgress = useApp((s) => s.setProgress);
+  const saver = useMemo(
+    () => new ProgressSaver(bookId, setSaveStatus, (loc, percent) => setProgress({ percent, pdfPage: loc.format === "pdf" ? loc.page_index : null })),
+    [bookId, setSaveStatus, setProgress],
+  );
   useEffect(() => {
     const flush = () => void saver.flush();
     window.addEventListener("blur", flush);

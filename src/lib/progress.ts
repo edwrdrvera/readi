@@ -19,9 +19,11 @@ export class ProgressSaver {
   constructor(
     private bookId: number,
     private onStatus: (s: SaveStatus) => void,
+    private onUpdate: (locator: Locator, percent: number) => void = () => {},
   ) {}
 
   update(locator: Locator, percent: number, immediate: boolean) {
+    this.onUpdate(locator, percent);
     if (!this.pending) this.firstPendingAt = Date.now();
     this.pending = { locator, percent };
     this.onStatus({ kind: "pending" });

@@ -13,6 +13,9 @@
     "windows": [
       {
         "title": "Readi",
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": { "x": 20, "y": 29 },
         "width": 1000,
         "height": 760,
         "minWidth": 480,

@@ -1,9 +1,11 @@
+mod annotations;
 mod db;
 mod jobs;
 mod library;
 mod model;
 mod prefs;
 mod protocol;
+mod search;
 mod watch;
 
 use jobs::{Jobs, LibraryEvent};
@@ -166,6 +168,55 @@ fn fail_extraction(lib: Lib, id: i64, error: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn retry_extraction(app: AppHandle, lib: Lib, id: i64) -> Result<(), String> {
+    db::retry_job(&lib.conn.lock().unwrap(), id)?;
+    let _ = app.emit("library-changed", ());
+    Ok(())
+}
+
+#[tauri::command]
+fn reindex_book(app: AppHandle, lib: Lib, id: i64) -> Result<(), String> {
+    db::reindex_book(&lib.conn.lock().unwrap(), id)?;
+    let _ = app.emit("library-changed", ());
+    Ok(())
+}
+
+#[tauri::command]
+fn search_book(lib: Lib, id: i64, query: String) -> Result<BookSearch, String> {
+    search::search_book(&lib.conn.lock().unwrap(), id, &query)
+}
+
+#[tauri::command]
+fn search_library(lib: Lib, query: String) -> Result<LibrarySearch, String> {
+    search::search_library(&lib.conn.lock().unwrap(), &query)
+}
+
+#[tauri::command]
+fn list_annotations(lib: Lib, book_id: i64) -> Result<Vec<Annotation>, String> {
+    annotations::list(&lib.conn.lock().unwrap(), book_id)
+}
+
+#[tauri::command]
+fn create_annotation(lib: Lib, annotation: NewAnnotation) -> Result<Annotation, String> {
+    annotations::create(&lib.conn.lock().unwrap(), annotation)
+}
+
+#[tauri::command]
+fn update_annotation(lib: Lib, id: i64, patch: AnnotationPatch) -> Result<Annotation, String> {
+    annotations::update(&lib.conn.lock().unwrap(), id, patch)
+}
+
+#[tauri::command]
+fn delete_annotation(lib: Lib, id: i64) -> Result<(), String> {
+    annotations::delete(&lib.conn.lock().unwrap(), id)
+}
+
+#[tauri::command]
+fn set_anchor_states(lib: Lib, states: Vec<(i64, AnchorState)>) -> Result<(), String> {
+    annotations::set_anchor_states(&lib.conn.lock().unwrap(), &states)
+}
+
+#[tauri::command]
 fn transport_stats(stats: State<Arc<TransportStats>>, id: i64) -> protocol::Stats {
     stats.0.lock().unwrap().get(&id).copied().unwrap_or_default()
 }
@@ -260,11 +311,14 @@ const VIEW: &[Item] = &[
     ("text.bigger", "Larger", Some("CmdOrCtrl+=")),
     ("text.smaller", "Smaller", Some("CmdOrCtrl+-")),
 ];
-// The palette has no accelerator: the frontend keydown handler owns ⌘K so the self test can drive it.
+// These have no accelerator: the frontend keydown handler owns ⌘K, ⌘F, ⌘⇧F, and ⌘D so the self test can drive them.
 const GO: &[Item] = &[
     ("nav.back", "Back", Some("CmdOrCtrl+[")),
     ("library.return", "Return to Library", None),
     ("palette.open", "Command Palette\u{2026}", None),
+    ("search.book", "Find in Book\u{2026}", None),
+    ("search.library", "Search Library\u{2026}", None),
+    ("bookmark.add", "Add Bookmark", None),
 ];
 
 fn custom_items(app: &AppHandle, items: &[Item]) -> tauri::Result<Vec<MenuItem<Wry>>> {
@@ -346,7 +400,22 @@ pub fn run() {
                 Err(_) => app.path().app_data_dir()?,
             };
             std::fs::create_dir_all(&data_dir)?;
-            let lib = Arc::new(Library::open(&data_dir).map_err(|e| format!("Cannot open library: {e}"))?);
+            let lib = match Library::open(&data_dir) {
+                Ok(lib) => Arc::new(lib),
+                Err(e) => {
+                    use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+                    let handle = app.handle().clone();
+                    app.dialog()
+                        .message(format!(
+                            "{e}.\n\nYour books and reading data have not been changed. The library is in:\n{}",
+                            data_dir.display()
+                        ))
+                        .title("Readi can't open your library")
+                        .kind(MessageDialogKind::Error)
+                        .show(move |_| handle.exit(1));
+                    return Ok(());
+                }
+            };
             let handle = app.handle().clone();
             let jobs = Jobs::new(
                 lib.clone(),
@@ -398,6 +467,15 @@ pub fn run() {
             submit_metadata,
             submit_text,
             fail_extraction,
+            retry_extraction,
+            reindex_book,
+            search_book,
+            search_library,
+            list_annotations,
+            create_annotation,
+            update_annotation,
+            delete_annotation,
+            set_anchor_states,
             transport_stats,
             count_text_matches,
             get_prefs,
