@@ -31,7 +31,9 @@ cd src-tauri && cargo test
 pnpm fixtures && node scripts/packaged-check.mjs
 ```
 
-Current status, decisions, and open issues are in [docs/M1.md](docs/M1.md), [docs/M2.md](docs/M2.md), [docs/M3.md](docs/M3.md), and [docs/M4.md](docs/M4.md). The packaged check needs the display on, the screen unlocked, and the app's window visible (not behind another Space or a full-screen app). Set `READI_ONLY_M3=1` to run only the library and file-lifecycle phases, or `READI_ONLY_M4=1` to run only the search and annotation phases.
+Current status and the next tasks are in [HANDOFF.md](HANDOFF.md). How to contribute is in [CONTRIBUTING.md](CONTRIBUTING.md). Third-party licenses are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+Milestone decisions and open issues are in [docs/M1.md](docs/M1.md), [docs/M2.md](docs/M2.md), [docs/M3.md](docs/M3.md), and [docs/M4.md](docs/M4.md). The packaged check needs the display on, the screen unlocked, and the app's window visible (not behind another Space or a full-screen app). Set `READI_ONLY_M3=1` to run only the library and file-lifecycle phases, or `READI_ONLY_M4=1` to run only the search and annotation phases.
 
 Search latency on a synthetic 100-book, 10-million-word corpus:
 
