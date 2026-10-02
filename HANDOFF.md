@@ -55,10 +55,10 @@ Keystrokes need the window focused; if `window_not_focused` comes back, pass `--
 | # | Work | Status |
 | --- | --- | --- |
 | 1 | Manual check pass (above) | done; findings A to E open |
-| 2 | CONTRIBUTING.md, third-party notices, README refresh | todo |
-| 3 | Migration recovery: a failed migration preserves data and reports it | todo |
-| 4 | Accessibility pass: keyboard and VoiceOver flows from spec §9 | todo |
-| 5 | Release workflow on version tags; unsigned developer preview label without credentials | todo |
+| 2 | CONTRIBUTING.md, third-party notices, README refresh | done. `node scripts/notices.mjs` writes THIRD_PARTY_NOTICES.md from the shipped graph (90 npm packages, 266 crates); CI fails when it is stale. Follow-ups: 16 packages ship no license file (objc2 family, block2, dispatch2, selectors, react-remove-scroll-bar, alloc-stdlib, defmt-parser), so add their standard SPDX texts; bundle the notices inside Readi.app (Tauri `resources`) |
+| 3 | Migration recovery: a failed migration preserves data and reports it | mostly done. Each step already ran in a transaction with a `vN.bak` copy first (verified: a forced failure kept 6 books and wrote `readi.v3.bak`). Added: a library from a newer schema is refused and left untouched (Rust test), and a failed open shows an error dialog instead of a silent crash. Open: the dialog sits over an empty-looking Library window; hiding the window made the dialog fail to show. Dialog appearance not seen by an agent (Orca fills the visible Space); the process waits on it and exits when it is dismissed |
+| 4 | Accessibility pass: keyboard and VoiceOver flows from spec §9 | started. Search snippets now have an accessible name with spaces (finding B). The accessibility tree reaches the library, reader toolbar, sidebar tabs, highlight popover, and edit card. Real VoiceOver run still owed |
+| 5 | Release workflow on version tags; unsigned developer preview label without credentials | written, never run. `.github/workflows/release.yml` builds a universal DMG and opens a draft release. The universal target and `gh release create` are unverified until the first `v*` tag |
 | 6 | Strip self-test hooks from the release binary | todo |
 | 7 | Performance re-measure with recorded hardware, OS, dependency versions, fixture hashes | todo |
 | 8 | Signing and notarization | blocked on Apple Developer credentials |
@@ -76,6 +76,16 @@ Keystrokes need the window focused; if `window_not_focused` comes back, pass `--
 - macOS 13 run; Tailwind v4 needs Safari 16.4, so the minimum may have to be 13.3+.
 - Hidden-window PDF checks fail with `visibilityState` hidden; run the packaged check with the display awake.
 
+## Next steps, in order
+
+1. Finding A (duplicate bookmarks): a `TODO(human)` sits in `addBookmark` in `src/lib/store.ts`.
+2. Startup error dialog: stop the empty Library rendering behind it (for example a `startup_error` command the frontend checks before it renders).
+3. Findings C, D, E from the manual checks.
+4. Strip the self-test commands from release builds (M5 item 6): gate `selftest_*` behind a cargo feature that `packaged-check.mjs` builds with.
+5. Real VoiceOver pass and the menu-bar checks, by hand.
+6. Performance re-measure (M5 item 7), then push `feat/m5-release` and open the PR into main.
+
 ## Log
 
+- 2026-10-01: Manual check pass (findings A to E). M5 started on `feat/m5-release`: search snippet accessible names, third-party notices and CI check, CONTRIBUTING, newer-schema refusal and startup error dialog, release workflow.
 - 2026-10-01: Cleaned up the main checkout (deleted `m1-skeleton`, fast-forwarded main). Started manual checks and M5.
